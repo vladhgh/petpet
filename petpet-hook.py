@@ -10,7 +10,7 @@
 import sys, os, json, time
 
 EVENT = sys.argv[1] if len(sys.argv) > 1 else ""
-PETPET = os.path.join(os.path.expanduser("~"), ".petpet")
+PETPET = os.path.join(os.path.expanduser("~"), "Code/petpet")
 SESS_PATH = os.path.join(PETPET, "session.json")
 HOME = os.path.expanduser("~")
 

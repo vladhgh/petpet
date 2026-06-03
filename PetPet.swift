@@ -11,7 +11,7 @@ import AppKit
 // MARK: - Paths
 
 let HOME = NSHomeDirectory()
-let PETPET_DIR = HOME + "/.petpet"
+let PETPET_DIR = HOME + "/Code/petpet"
 let CONFIG_PATH = PETPET_DIR + "/config.json"
 let STATE_PATH = PETPET_DIR + "/state.json"
 let BUBBLE_PATH = PETPET_DIR + "/bubble.json"

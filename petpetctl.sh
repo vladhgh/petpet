@@ -11,7 +11,7 @@
 #   petpetctl build            recompile from source
 #   petpetctl pets             list installed pets
 
-DIR="$HOME/.petpet"
+DIR="$HOME/Code/petpet"
 BIN="$DIR/petpet"
 CONFIG="$DIR/config.json"
 STATE="$DIR/state.json"
