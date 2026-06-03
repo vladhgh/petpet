@@ -1,0 +1,15 @@
+# compiled binary
+petpet
+petpet.tmp
+petpet.dSYM/
+
+# runtime state (written by hooks, not part of source)
+state.json
+bubble.json
+session.json
+
+# logs
+*.log
+
+# macOS junk
+.DS_Store
