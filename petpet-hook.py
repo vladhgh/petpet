@@ -1,6 +1,9 @@
 #!/usr/bin/env python3
 # petpet-hook.py <event> — map a Claude Code hook event + its stdin JSON into:
-#   event.json   {"state","sleep","status","color","detail","ttl"}  (single file)
+#   event.json   {"state","sleep","title","status","color","detail","ttl"}
+# title = the session "topic" (тема): the active TodoWrite step if there is a
+# plan, else the first user prompt. status/detail are the current activity
+# (subtitle); doneness is shown by the card's icon, not the word "Готово".
 # Tracks active sessions in session.json so the pet reflects the live session
 # and sleeps only when every session has ended. Fast, silent, never fails.
 #
@@ -66,6 +69,21 @@ def describe(tool, ti):
     return clip(t) if t else ""
 
 
+def active_todo(ti):
+    # The in-progress TodoWrite item is literally "what we're doing now" — the
+    # best available "topic" for the card title. activeForm is the present-tense
+    # phrasing ("Чищу Downloads"); fall back to content.
+    if not isinstance(ti, dict):
+        return ""
+    todos = ti.get("todos")
+    if not isinstance(todos, list):
+        return ""
+    for td in todos:
+        if isinstance(td, dict) and td.get("status") == "in_progress":
+            return clip(td.get("activeForm") or td.get("content") or "", 40)
+    return ""
+
+
 # ---- session bookkeeping ---------------------------------------------------
 
 def load_sessions():
@@ -102,7 +120,7 @@ def rec(sid):
 if EVENT == "session-start":
     r = rec(SID); r["ts"] = time.time(); sess["active"] = SID
     STATE = "jumping"
-    card = {"status": "Готов", "color": "green", "detail": r["path"], "ttl": 0}
+    card = {"title": "", "status": "Готов", "color": "green", "detail": r["path"], "ttl": 0}
 
 elif EVENT == "session-end":
     S.pop(SID, None)
@@ -110,12 +128,14 @@ elif EVENT == "session-end":
         sess["active"] = max(S, key=lambda k: S[k]["ts"]) if S else None
     if not S:
         STATE, sleep = "idle", True
-        card = {"status": "Сплю", "color": "gray", "detail": "", "ttl": 0}
+        card = {"title": "", "status": "Сплю", "color": "gray", "detail": "", "ttl": 0}
     else:
         STATE = "idle"
         a = S[sess["active"]]
-        card = {"status": "Готово", "color": "green",
-                "detail": a.get("topic") or a.get("path", ""), "ttl": 0}
+        topic = a.get("topic", "")
+        # done: keep the topic as the title, the green icon means "done"
+        card = {"title": topic, "status": "" if topic else "Готово",
+                "color": "green", "detail": "" if topic else a.get("path", ""), "ttl": 0}
 
 else:
     r = rec(SID); r["ts"] = time.time(); sess["active"] = SID
@@ -123,39 +143,52 @@ else:
     if EVENT == "user-prompt":
         prompt = payload.get("prompt", "")
         if prompt and not r.get("topic"):
-            r["topic"] = clip(prompt, 40)
+            r["topic"] = clip(prompt, 40)   # fallback topic until a plan exists
         STATE = "jumping"
-        card = {"status": "Думаю…", "color": "purple",
-                "detail": clip(prompt, 40) or r["path"], "ttl": 0}
+        card = {"title": r.get("topic", ""), "status": "Думаю…",
+                "color": "purple", "detail": "", "ttl": 0}
 
     elif EVENT == "pre":
         tool = payload.get("tool_name", "")
-        what = describe(tool, payload.get("tool_input"))
-        if tool in ("Read", "Grep", "Glob", "NotebookRead", "WebFetch", "WebSearch"):
-            STATE = "review"
-            card = {"status": "Читаю", "color": "blue", "detail": what, "ttl": 6}
-        else:
+        if tool == "TodoWrite":
+            topic = active_todo(payload.get("tool_input"))
+            if topic:
+                r["topic"] = topic          # the plan beats the first-prompt fallback
             STATE = "running"
-            verb = {"Bash": "Выполняю", "Edit": "Редактирую", "MultiEdit": "Редактирую",
-                    "Write": "Пишу", "Task": "Запускаю", "TodoWrite": "Планирую"}.get(tool, "Работаю")
-            card = {"status": verb, "color": "blue", "detail": what, "ttl": 6}
+            card = {"title": r.get("topic", ""), "status": "Планирую",
+                    "color": "blue", "detail": "", "ttl": 6}
+        else:
+            what = describe(tool, payload.get("tool_input"))
+            if tool in ("Read", "Grep", "Glob", "NotebookRead", "WebFetch", "WebSearch"):
+                STATE = "review"
+                card = {"title": r.get("topic", ""), "status": "Читаю",
+                        "color": "blue", "detail": what, "ttl": 6}
+            else:
+                STATE = "running"
+                verb = {"Bash": "Выполняю", "Edit": "Редактирую", "MultiEdit": "Редактирую",
+                        "Write": "Пишу", "Task": "Запускаю"}.get(tool, "Работаю")
+                card = {"title": r.get("topic", ""), "status": verb,
+                        "color": "blue", "detail": what, "ttl": 6}
 
     elif EVENT == "post":
         resp = payload.get("tool_response")
         if isinstance(resp, dict) and (resp.get("error") or resp.get("is_error")):
             STATE = "failed"
-            card = {"status": "Ошибка", "color": "red", "detail": "Сбой инструмента", "ttl": 0}
+            card = {"title": r.get("topic", ""), "status": "Ошибка",
+                    "color": "red", "detail": "Сбой инструмента", "ttl": 0}
         # success: leave the card as-is
 
     elif EVENT == "notify":
         STATE = "waiting"
-        card = {"status": "Жду ответа", "color": "amber",
+        card = {"title": r.get("topic", ""), "status": "Жду ответа", "color": "amber",
                 "detail": clip(payload.get("message") or "Нужен ответ", 60), "ttl": 0}
 
     elif EVENT == "stop":
         STATE = "waving"
-        card = {"status": "Готово", "color": "green",
-                "detail": r.get("topic") or r["path"], "ttl": 10}
+        topic = r.get("topic", "")
+        # done: the title keeps the topic, the green icon means "done" — no "Готово"
+        card = {"title": topic, "status": "" if topic else "Готово",
+                "color": "green", "detail": "" if topic else r["path"], "ttl": 10}
 
 save_sessions(sess)
 

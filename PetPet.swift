@@ -233,29 +233,55 @@ final class PetView: NSView {
 // MARK: - Status bubble
 
 final class BubbleView: NSView {
-    var content = NSAttributedString() { didSet { needsDisplay = true } }
+    enum Icon { case spinner, check, cross, question, dot }
 
-    static let maxTextWidth: CGFloat = 300
-    static let padX: CGFloat = 12
-    static let padY: CGFloat = 8
+    // Card content: a bold title (the topic), an optional soft subtitle (the
+    // current activity), and a status icon on the right.
+    var title = ""
+    var subtitle = ""
+    var icon: Icon = .dot
+    var accent: NSColor = .systemBlue
+    var titleFont = NSFont.monospacedSystemFont(ofSize: 13, weight: .bold)
+    var subFont   = NSFont.monospacedSystemFont(ofSize: 11, weight: .regular)
+    var spinnerPhase = 0
+
+    static let maxTextWidth: CGFloat = 280
+    static let padX: CGFloat = 13
+    static let padY: CGFloat = 9
+    static let lineGap: CGFloat = 3   // between title and subtitle
+    static let iconSize: CGFloat = 15
+    static let iconGap: CGFloat = 12  // between text column and icon
     // Tail exits bottom-right corner of box at ~45° toward the pet.
     static let tailDX: CGFloat = 22    // tail horizontal extent beyond box
-    static let tailDY: CGFloat = 22    // tail vertical drop below box
+    static let tailDY: CGFloat = 20    // tail vertical drop below box
     static let tailMouth: CGFloat = 14 // size of tail opening at corner
-    static let radius: CGFloat = 5
+    static let radius: CGFloat = 6
     static let drawOpts: NSString.DrawingOptions = [.usesLineFragmentOrigin, .usesFontLeading]
 
     static let parchment = NSColor(calibratedRed: 0.965, green: 0.929, blue: 0.808, alpha: 1.0)
     static let ink       = NSColor(calibratedRed: 0.247, green: 0.180, blue: 0.110, alpha: 1.0)
-    static let inkSoft   = NSColor(calibratedRed: 0.247, green: 0.180, blue: 0.110, alpha: 0.28)
-
-    static func size(for content: NSAttributedString) -> NSSize {
-        let b = content.boundingRect(with: NSSize(width: maxTextWidth, height: 40), options: drawOpts)
-        return NSSize(width:  ceil(b.width)  + padX * 2 + tailDX + 4,
-                      height: ceil(b.height) + padY * 2 + tailDY + 3)
-    }
+    static let inkSoft   = NSColor(calibratedRed: 0.247, green: 0.180, blue: 0.110, alpha: 0.62)
+    static let hairline  = NSColor(calibratedRed: 0.247, green: 0.180, blue: 0.110, alpha: 0.28)
 
     override var isFlipped: Bool { false }
+
+    private func lineHeight(_ f: NSFont) -> CGFloat { ceil(f.ascender - f.descender + f.leading) }
+
+    private func textWidth() -> CGFloat {
+        let tw = (title as NSString).size(withAttributes: [.font: titleFont]).width
+        let sw = subtitle.isEmpty ? 0 : (subtitle as NSString).size(withAttributes: [.font: subFont]).width
+        return min(BubbleView.maxTextWidth, ceil(max(tw, sw)))
+    }
+
+    func fittingSize() -> NSSize {
+        let innerW = textWidth() + BubbleView.iconGap + BubbleView.iconSize
+        let gap = subtitle.isEmpty ? 0 : BubbleView.lineGap
+        let innerH = lineHeight(titleFont) + gap + (subtitle.isEmpty ? 0 : lineHeight(subFont))
+        let boxW = innerW + BubbleView.padX * 2
+        let boxH = max(innerH, BubbleView.iconSize) + BubbleView.padY * 2
+        return NSSize(width:  boxW + BubbleView.tailDX + 4,
+                      height: boxH + BubbleView.tailDY + 3)
+    }
 
     override func draw(_ dirtyRect: NSRect) {
         let r   = BubbleView.radius
@@ -301,14 +327,76 @@ final class BubbleView: NSView {
         // inner engraved hairline
         let innerRect = boxRect.insetBy(dx: 3.5, dy: 3.5)
         let inner = NSBezierPath(roundedRect: innerRect, xRadius: max(1, r - 2), yRadius: max(1, r - 2))
-        BubbleView.inkSoft.setStroke()
+        BubbleView.hairline.setStroke()
         inner.lineWidth = 1; inner.stroke()
 
-        let textRect = NSRect(x: BubbleView.padX,
-                              y: tDY + BubbleView.padY,
-                              width:  boxRect.width  - BubbleView.padX * 2,
-                              height: boxRect.height - BubbleView.padY * 2)
-        content.draw(with: textRect, options: BubbleView.drawOpts)
+        // --- content: title + subtitle (left), status icon (right) ---
+        let tw  = textWidth()
+        let gap = subtitle.isEmpty ? 0 : BubbleView.lineGap
+        let innerH = lineHeight(titleFont) + gap + (subtitle.isEmpty ? 0 : lineHeight(subFont))
+        let contentTop = boxRect.midY + innerH / 2   // top of the text block, centered
+        let textX = boxRect.minX + BubbleView.padX
+
+        let p = NSMutableParagraphStyle()
+        p.alignment = .left; p.lineBreakMode = .byTruncatingTail
+
+        let titleRect = NSRect(x: textX, y: contentTop - lineHeight(titleFont),
+                               width: tw, height: lineHeight(titleFont))
+        (title as NSString).draw(with: titleRect, options: BubbleView.drawOpts,
+            attributes: [.font: titleFont, .foregroundColor: BubbleView.ink, .paragraphStyle: p])
+
+        if !subtitle.isEmpty {
+            let subRect = NSRect(x: textX, y: contentTop - lineHeight(titleFont) - gap - lineHeight(subFont),
+                                 width: tw, height: lineHeight(subFont))
+            (subtitle as NSString).draw(with: subRect, options: BubbleView.drawOpts,
+                attributes: [.font: subFont, .foregroundColor: BubbleView.inkSoft, .paragraphStyle: p])
+        }
+
+        let iconBox = NSRect(x: textX + tw + BubbleView.iconGap,
+                             y: boxRect.midY - BubbleView.iconSize / 2,
+                             width: BubbleView.iconSize, height: BubbleView.iconSize)
+        drawIcon(in: iconBox)
+    }
+
+    private func drawIcon(in b: NSRect) {
+        let c = accent.blended(withFraction: 0.12, of: BubbleView.ink) ?? accent
+        switch icon {
+        case .check:
+            let p = NSBezierPath()
+            p.lineWidth = 2; p.lineCapStyle = .round; p.lineJoinStyle = .round
+            p.move(to: NSPoint(x: b.minX + b.width*0.16, y: b.minY + b.height*0.52))
+            p.line(to: NSPoint(x: b.minX + b.width*0.40, y: b.minY + b.height*0.26))
+            p.line(to: NSPoint(x: b.minX + b.width*0.86, y: b.minY + b.height*0.78))
+            c.setStroke(); p.stroke()
+        case .cross:
+            let p = NSBezierPath(); p.lineWidth = 2; p.lineCapStyle = .round
+            p.move(to: NSPoint(x: b.minX + b.width*0.24, y: b.minY + b.height*0.24))
+            p.line(to: NSPoint(x: b.maxX - b.width*0.24, y: b.maxY - b.height*0.24))
+            p.move(to: NSPoint(x: b.maxX - b.width*0.24, y: b.minY + b.height*0.24))
+            p.line(to: NSPoint(x: b.minX + b.width*0.24, y: b.maxY - b.height*0.24))
+            c.setStroke(); p.stroke()
+        case .question:
+            let f = NSFont(name: "Courier New", size: b.height) ?? NSFont.boldSystemFont(ofSize: b.height)
+            let bf = NSFontManager.shared.convert(f, toHaveTrait: .boldFontMask)
+            let s = "?" as NSString
+            let attrs: [NSAttributedString.Key: Any] = [.font: bf, .foregroundColor: c]
+            let sz = s.size(withAttributes: attrs)
+            s.draw(at: NSPoint(x: b.midX - sz.width/2, y: b.midY - sz.height/2), withAttributes: attrs)
+        case .dot:
+            c.setFill(); NSBezierPath(ovalIn: b.insetBy(dx: b.width*0.30, dy: b.height*0.30)).fill()
+        case .spinner:
+            let cx = b.midX, cy = b.midY
+            let rOut = b.width * 0.46, rIn = b.width * 0.20
+            let n = 8, lead = spinnerPhase % 8
+            for i in 0..<n {
+                let frac = CGFloat((n - 1 - ((i - lead + n) % n))) / CGFloat(n - 1)
+                let ang = CGFloat(i) / CGFloat(n) * 2 * .pi
+                let p = NSBezierPath(); p.lineWidth = 1.7; p.lineCapStyle = .round
+                p.move(to: NSPoint(x: cx + cos(ang)*rIn,  y: cy + sin(ang)*rIn))
+                p.line(to: NSPoint(x: cx + cos(ang)*rOut, y: cy + sin(ang)*rOut))
+                c.withAlphaComponent(0.18 + 0.82 * frac).setStroke(); p.stroke()
+            }
+        }
     }
 }
 
@@ -445,9 +533,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     var tossing: Bool { physicsTimer != nil }
 
     // bubble state (raw values kept to rebuild on font change)
-    var currentContent: NSAttributedString? = nil
-    var currentSticky  = false
-    var lastStatus = "", lastDetail = "", lastColor = NSColor.systemBlue, lastTTL = 0.0
+    var hasCard       = false
+    var currentSticky = false
+    var spinnerTimer: Timer?
+    var lastTitle = "", lastStatus = "", lastDetail = "", lastColorName = "blue", lastTTL = 0.0
 
     // autonomous idle
     var behaviorState: String? = nil
@@ -552,25 +641,22 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         config.bubbleFont     = name
         config.bubbleFontSize = max(8, min(24, size))
         config.save()
-        guard currentContent != nil, !lastStatus.isEmpty || !lastDetail.isEmpty else { return }
-        currentContent = statusCard(status: lastStatus, color: lastColor, detail: lastDetail)
-        bubbleView.content = currentContent!
-        bubbleWindow.setContentSize(BubbleView.size(for: currentContent!))
-        repositionBubble()
+        guard hasCard else { return }
+        applyCard()
     }
 
     // MARK: interaction
 
     func setHover(_ on: Bool) {
         hovering = on
-        if on, let c = currentContent {
+        if on, hasCard {
             bubbleHideTimer?.invalidate()
-            bubbleView.content = c
-            bubbleWindow.setContentSize(BubbleView.size(for: c))
+            bubbleWindow.setContentSize(bubbleView.fittingSize())
             repositionBubble()
             bubbleWindow.orderFront(nil)
+            if bubbleView.icon == .spinner { startSpinner() }
         } else if !on, !currentSticky {
-            bubbleWindow.orderOut(nil)
+            bubbleWindow.orderOut(nil); stopSpinner()
         }
         refreshDisplay()
         updateWander()
@@ -671,60 +757,82 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         if let s = obj["state"] as? String { setAgentState(s) }
 
         // bubble card
+        let title  = (obj["title"]  as? String) ?? ""
         let status = (obj["status"] as? String) ?? ""
         let detail = (obj["detail"] as? String) ?? (obj["text"] as? String ?? "")
-        let color  = statusColor((obj["color"] as? String) ?? "blue")
+        let color  = (obj["color"]  as? String) ?? "blue"
         let ttl    = (obj["ttl"]    as? Double) ?? 6
-        if status.isEmpty && detail.isEmpty {
-            currentContent = nil; currentSticky = false
-            lastStatus = ""; lastDetail = ""
-            bubbleWindow.orderOut(nil)
+        if title.isEmpty && status.isEmpty && detail.isEmpty {
+            hasCard = false; currentSticky = false
+            lastTitle = ""; lastStatus = ""; lastDetail = ""
+            bubbleWindow.orderOut(nil); stopSpinner()
         } else {
-            lastStatus = status; lastDetail = detail; lastColor = color; lastTTL = ttl
-            currentContent = statusCard(status: status, color: color, detail: detail)
-            showStatus(currentContent!, ttl: ttl)
+            lastTitle = title; lastStatus = status; lastDetail = detail
+            lastColorName = color; lastTTL = ttl
+            hasCard = true
+            applyCard()
         }
     }
 
-    func statusCard(status: String, color: NSColor, detail: String) -> NSAttributedString {
-        let p   = NSMutableParagraphStyle()
-        p.alignment = .left; p.lineBreakMode = .byTruncatingTail
-        let ink  = NSColor(calibratedRed: 0.247, green: 0.180, blue: 0.110, alpha: 1.0)
-        let soft = NSColor(calibratedRed: 0.247, green: 0.180, blue: 0.110, alpha: 0.62)
-        let dot  = color.blended(withFraction: 0.18, of: ink) ?? color
-        let fn   = config.bubbleFont
-        let fs   = config.bubbleFontSize
-        let m = NSMutableAttributedString()
-        if !status.isEmpty {
-            m.append(NSAttributedString(string: "● ", attributes: [
-                .font: vintageFont(fn, fs, bold: true), .foregroundColor: dot, .paragraphStyle: p]))
-            m.append(NSAttributedString(string: status, attributes: [
-                .font: vintageFont(fn, fs + 1, bold: true), .foregroundColor: ink, .paragraphStyle: p]))
+    func iconFor(_ color: String) -> BubbleView.Icon {
+        switch color {
+        case "green": return .check       // done
+        case "red":   return .cross       // error
+        case "amber": return .question    // waiting for input
+        case "gray":  return .dot         // asleep / idle
+        default:      return .spinner     // blue / purple: working / thinking
         }
-        if !detail.isEmpty {
-            m.append(NSAttributedString(string: "  ·  ", attributes: [
-                .font: vintageFont(fn, fs, bold: false), .foregroundColor: soft, .paragraphStyle: p]))
-            m.append(NSAttributedString(string: detail, attributes: [
-                .font: vintageFont(fn, fs, bold: false), .foregroundColor: soft, .paragraphStyle: p]))
-        }
-        return m
     }
 
-    func showStatus(_ content: NSAttributedString, ttl: Double) {
+    // Build the card from the last raw values and show it.
+    // title = topic; subtitle = current activity (status · detail). If there is
+    // no topic, the status itself becomes the title (e.g. session-start "Готов").
+    func applyCard() {
+        let icon = iconFor(lastColorName)
+        var t = lastTitle
+        var sub = ""
+        if t.isEmpty {
+            t = lastStatus
+            sub = lastDetail
+        } else if !lastStatus.isEmpty && !lastDetail.isEmpty {
+            sub = lastStatus + "  ·  " + lastDetail
+        } else {
+            sub = lastStatus.isEmpty ? lastDetail : lastStatus
+        }
+        bubbleView.title     = t
+        bubbleView.subtitle  = sub
+        bubbleView.icon      = icon
+        bubbleView.accent    = statusColor(lastColorName)
+        bubbleView.titleFont = vintageFont(config.bubbleFont, config.bubbleFontSize + 2, bold: true)
+        bubbleView.subFont   = vintageFont(config.bubbleFont, config.bubbleFontSize,     bold: false)
+        bubbleView.needsDisplay = true
+
         bubbleHideTimer?.invalidate()
-        bubbleView.content = content
-        bubbleWindow.setContentSize(BubbleView.size(for: content))
+        bubbleWindow.setContentSize(bubbleView.fittingSize())
         repositionBubble()
         bubbleWindow.orderFront(nil)
-        if ttl > 0 {
+        if icon == .spinner { startSpinner() } else { stopSpinner() }
+        if lastTTL > 0 {
             currentSticky = false
-            bubbleHideTimer = Timer.scheduledTimer(withTimeInterval: ttl, repeats: false) { [weak self] _ in
-                if !(self?.hovering ?? false) { self?.bubbleWindow.orderOut(nil) }
+            bubbleHideTimer = Timer.scheduledTimer(withTimeInterval: lastTTL, repeats: false) { [weak self] _ in
+                guard let self = self, !self.hovering else { return }
+                self.bubbleWindow.orderOut(nil); self.stopSpinner()
             }
         } else {
             currentSticky = true
         }
     }
+
+    func startSpinner() {
+        if spinnerTimer != nil { return }
+        spinnerTimer = Timer.scheduledTimer(withTimeInterval: 0.11, repeats: true) { [weak self] _ in
+            guard let self = self else { return }
+            self.bubbleView.spinnerPhase &+= 1
+            self.bubbleView.needsDisplay = true
+        }
+    }
+
+    func stopSpinner() { spinnerTimer?.invalidate(); spinnerTimer = nil }
 
     // MARK: state resolution
 
