@@ -176,7 +176,8 @@ else:
                 verb = {"Bash": "Выполняю", "Edit": "Редактирую", "MultiEdit": "Редактирую",
                         "Write": "Пишу", "Task": "Запускаю"}.get(tool, "Работаю")
                 card = {"title": r.get("topic", ""), "status": verb,
-                        "color": "blue", "detail": what, "ttl": 0}
+                        "color": "blue", "detail": what,
+                        "detail_code": tool == "Bash", "ttl": 0}
 
     elif EVENT == "post":
         resp = payload.get("tool_response")
