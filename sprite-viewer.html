@@ -1,0 +1,507 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Sprite Viewer</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+
+  body {
+    background: #1a1a1a;
+    color: #e0e0e0;
+    font: 13px/1.5 "SF Mono", "Menlo", monospace;
+    min-height: 100vh;
+    padding: 24px;
+  }
+
+  h1 {
+    font-size: 16px;
+    font-weight: 600;
+    letter-spacing: 0.05em;
+    color: #fff;
+    margin-bottom: 20px;
+  }
+
+  .toolbar {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 12px;
+    align-items: center;
+    margin-bottom: 24px;
+  }
+
+  .drop-zone {
+    border: 2px dashed #444;
+    border-radius: 8px;
+    padding: 12px 20px;
+    cursor: pointer;
+    color: #888;
+    transition: border-color 0.15s, color 0.15s;
+    white-space: nowrap;
+  }
+  .drop-zone:hover, .drop-zone.over { border-color: #5b9bd5; color: #5b9bd5; }
+  .drop-zone input { display: none; }
+
+  .pet-select-wrap { display: flex; align-items: center; gap: 8px; }
+  .pet-select-wrap select { min-width: 160px; }
+
+  label { color: #999; font-size: 12px; }
+
+  select, input[type=range], input[type=number] {
+    background: #2a2a2a;
+    border: 1px solid #444;
+    border-radius: 4px;
+    color: #e0e0e0;
+    padding: 4px 8px;
+    font: inherit;
+  }
+  input[type=range] { padding: 0; width: 120px; cursor: pointer; }
+
+  .sep { width: 1px; height: 28px; background: #333; }
+
+  /* ── Sheet preview ─────────────────────────── */
+  .section { margin-bottom: 32px; }
+  .section-title {
+    font-size: 11px;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: #666;
+    margin-bottom: 12px;
+  }
+
+  #sheet-wrap {
+    display: inline-block;
+    border: 1px solid #333;
+    border-radius: 4px;
+    overflow: hidden;
+    image-rendering: pixelated;
+    position: relative;
+  }
+  #sheet-canvas { display: block; image-rendering: pixelated; }
+
+  /* grid overlay lines drawn via box-shadow on tiny divs */
+  .grid-overlay {
+    position: absolute; inset: 0;
+    pointer-events: none;
+  }
+
+  /* ── Animation rows ────────────────────────── */
+  #anims {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 20px;
+  }
+
+  .anim-card {
+    background: #222;
+    border: 1px solid #333;
+    border-radius: 8px;
+    padding: 14px 16px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 8px;
+    min-width: 120px;
+    cursor: pointer;
+    transition: border-color 0.15s;
+    user-select: none;
+  }
+  .anim-card:hover { border-color: #555; }
+  .anim-card.active { border-color: #5b9bd5; background: #1e2530; }
+
+  .anim-label {
+    font-size: 11px;
+    color: #aaa;
+    text-align: center;
+    width: 100%;
+  }
+  .anim-label strong { color: #fff; display: block; font-size: 12px; }
+  .anim-label span   { color: #666; font-size: 10px; }
+
+  canvas.frame { image-rendering: pixelated; }
+
+  /* ── Row strip ─────────────────────────────── */
+  #strip-wrap {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+  }
+  .strip-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+  .strip-label {
+    font-size: 10px;
+    color: #666;
+    width: 28px;
+    text-align: right;
+    flex-shrink: 0;
+  }
+  .strip-frames {
+    display: flex;
+    gap: 3px;
+  }
+  .strip-frames canvas {
+    border: 1px solid #333;
+    border-radius: 2px;
+    image-rendering: pixelated;
+    cursor: pointer;
+    transition: border-color 0.1s;
+  }
+  .strip-frames canvas:hover { border-color: #5b9bd5; }
+  .strip-row-name {
+    font-size: 10px;
+    color: #555;
+    white-space: nowrap;
+  }
+
+  #status { font-size: 11px; color: #666; }
+
+  .placeholder {
+    color: #444;
+    font-size: 13px;
+    padding: 40px 0;
+  }
+</style>
+</head>
+<body>
+
+<h1>Sprite Viewer</h1>
+
+<div class="toolbar">
+  <div class="pet-select-wrap">
+    <label>Pet</label>
+    <select id="petSelect">
+      <option value="">— select —</option>
+    </select>
+  </div>
+
+  <div class="sep"></div>
+
+  <div class="drop-zone" id="dropZone">
+    <input type="file" id="fileInput" accept="image/*">
+    &#x1F4C2; Open spritesheet (or drag &amp; drop)
+  </div>
+
+  <div class="sep"></div>
+
+  <label>Cols <input type="number" id="colsInput" value="8" min="1" max="64" style="width:52px"></label>
+  <label>Rows <input type="number" id="rowsInput" value="9" min="1" max="64" style="width:52px"></label>
+
+  <div class="sep"></div>
+
+  <label>Speed&nbsp;
+    <input type="range" id="speedSlider" min="10" max="500" value="100">
+  </label>
+  <span id="speedVal" style="color:#666;font-size:11px;">1.0×</span>
+
+  <div class="sep"></div>
+  <span id="status">no file loaded</span>
+</div>
+
+<!-- Full sheet -->
+<div class="section">
+  <div class="section-title">Full sheet</div>
+  <div id="sheet-wrap">
+    <canvas id="sheet-canvas"></canvas>
+    <div class="grid-overlay" id="gridOverlay"></div>
+  </div>
+</div>
+
+<!-- Named animations -->
+<div class="section" id="animSection">
+  <div class="section-title">Named animations (PetPet)</div>
+  <div id="anims"><p class="placeholder">load a spritesheet to see animations</p></div>
+</div>
+
+<!-- All rows strip -->
+<div class="section" id="stripSection">
+  <div class="section-title">All rows</div>
+  <div id="strip-wrap"><p class="placeholder"></p></div>
+</div>
+
+<script>
+// ── Known animation definitions (from PetPet.swift) ──────────────────────────
+const ANIMS = {
+  "idle":          { row: 0, frames: [{c:0,d:280},{c:1,d:110},{c:2,d:110},{c:3,d:140},{c:4,d:140},{c:5,d:320}] },
+  "running-right": { row: 1, frames: uniform(8, 120, 220) },
+  "running-left":  { row: 2, frames: uniform(8, 120, 220) },
+  "waving":        { row: 3, frames: uniform(4, 140, 280) },
+  "jumping":       { row: 4, frames: uniform(5, 140, 280) },
+  "failed":        { row: 5, frames: uniform(8, 140, 240) },
+  "waiting":       { row: 6, frames: uniform(6, 150, 260) },
+  "running":       { row: 7, frames: uniform(6, 120, 220) },
+  "review":        { row: 8, frames: uniform(6, 150, 280) },
+};
+
+function uniform(count, dur, lastDur) {
+  return Array.from({length: count}, (_, i) => ({ c: i, d: i === count-1 ? lastDur : dur }));
+}
+
+// ── State ─────────────────────────────────────────────────────────────────────
+let img = null;
+let COLS = 8, ROWS = 9;
+let frameW = 0, frameH = 0;
+let speedMul = 1.0;
+
+// per-card animation state
+const cardTimers = new Map(); // name -> {rafId, frameIdx}
+
+// ── DOM refs ─────────────────────────────────────────────────────────────────
+const dropZone     = document.getElementById('dropZone');
+const fileInput    = document.getElementById('fileInput');
+const colsInput    = document.getElementById('colsInput');
+const rowsInput    = document.getElementById('rowsInput');
+const speedSlider  = document.getElementById('speedSlider');
+const speedVal     = document.getElementById('speedVal');
+const sheetCanvas  = document.getElementById('sheet-canvas');
+const gridOverlay  = document.getElementById('gridOverlay');
+const animsDiv     = document.getElementById('anims');
+const stripDiv     = document.getElementById('strip-wrap');
+const statusEl     = document.getElementById('status');
+
+// ── File loading ──────────────────────────────────────────────────────────────
+dropZone.addEventListener('click', () => fileInput.click());
+fileInput.addEventListener('change', e => loadFile(e.target.files[0]));
+
+dropZone.addEventListener('dragover', e => { e.preventDefault(); dropZone.classList.add('over'); });
+dropZone.addEventListener('dragleave', () => dropZone.classList.remove('over'));
+dropZone.addEventListener('drop', e => {
+  e.preventDefault(); dropZone.classList.remove('over');
+  loadFile(e.dataTransfer.files[0]);
+});
+
+colsInput.addEventListener('change', () => { COLS = +colsInput.value || 8; if (img) rebuild(); });
+rowsInput.addEventListener('change', () => { ROWS = +rowsInput.value || 9; if (img) rebuild(); });
+
+speedSlider.addEventListener('input', () => {
+  speedMul = +speedSlider.value / 100;
+  speedVal.textContent = speedMul.toFixed(1) + '×';
+});
+
+function loadFile(file) {
+  if (!file) return;
+  const url = URL.createObjectURL(file);
+  const image = new Image();
+  image.onload = () => {
+    img = image;
+    statusEl.textContent = `${file.name} — ${image.width}×${image.height}px`;
+    rebuild();
+    URL.revokeObjectURL(url);
+  };
+  image.src = url;
+}
+
+// ── Main rebuild ──────────────────────────────────────────────────────────────
+function rebuild() {
+  stopAllAnims();
+  frameW = Math.floor(img.width / COLS);
+  frameH = Math.floor(img.height / ROWS);
+  drawSheet();
+  buildAnimCards();
+  buildStrip();
+}
+
+// ── Sheet preview ─────────────────────────────────────────────────────────────
+const SHEET_MAX = 600; // max display width
+
+function drawSheet() {
+  const scale = Math.min(1, SHEET_MAX / img.width);
+  const dw = Math.round(img.width * scale);
+  const dh = Math.round(img.height * scale);
+  sheetCanvas.width  = dw;
+  sheetCanvas.height = dh;
+  const ctx = sheetCanvas.getContext('2d');
+  ctx.imageSmoothingEnabled = false;
+  ctx.drawImage(img, 0, 0, dw, dh);
+
+  // grid lines
+  ctx.strokeStyle = 'rgba(100,160,220,0.35)';
+  ctx.lineWidth = 1;
+  const cw = dw / COLS;
+  const rh = dh / ROWS;
+  for (let c = 1; c < COLS; c++) { ctx.beginPath(); ctx.moveTo(c*cw+0.5,0); ctx.lineTo(c*cw+0.5,dh); ctx.stroke(); }
+  for (let r = 1; r < ROWS; r++) { ctx.beginPath(); ctx.moveTo(0,r*rh+0.5); ctx.lineTo(dw,r*rh+0.5); ctx.stroke(); }
+}
+
+// ── Animation cards ───────────────────────────────────────────────────────────
+function buildAnimCards() {
+  animsDiv.innerHTML = '';
+
+  // Extra: show all rows not in ANIMS
+  const usedRows = new Set(Object.values(ANIMS).map(a => a.row));
+
+  for (const [name, anim] of Object.entries(ANIMS)) {
+    if (anim.row >= ROWS) continue;
+    animsDiv.appendChild(makeCard(name, anim));
+  }
+
+  // unnamed rows
+  for (let r = 0; r < ROWS; r++) {
+    if (!usedRows.has(r)) {
+      const name = `row ${r}`;
+      const frames = uniform(COLS, 150, 150);
+      animsDiv.appendChild(makeCard(name, {row: r, frames}));
+    }
+  }
+}
+
+function makeCard(name, anim) {
+  const PREVIEW = 64; // display px per frame
+  const scale = Math.max(1, Math.floor(PREVIEW / frameH));
+  const pw = frameW * scale;
+  const ph = frameH * scale;
+
+  const card = document.createElement('div');
+  card.className = 'anim-card';
+  card.dataset.name = name;
+
+  const cv = document.createElement('canvas');
+  cv.className = 'frame';
+  cv.width  = pw;
+  cv.height = ph;
+
+  const label = document.createElement('div');
+  label.className = 'anim-label';
+  label.innerHTML = `<strong>${name}</strong><span>row ${anim.row} · ${anim.frames.length} frames</span>`;
+
+  card.appendChild(cv);
+  card.appendChild(label);
+
+  // start animation immediately
+  startCardAnim(name, anim, cv, scale);
+
+  // click to pause/resume
+  card.addEventListener('click', () => {
+    if (cardTimers.has(name)) {
+      stopCardAnim(name);
+      card.classList.remove('active');
+    } else {
+      startCardAnim(name, anim, cv, scale);
+      card.classList.add('active');
+    }
+  });
+
+  return card;
+}
+
+function stopAllAnims() {
+  for (const [name] of cardTimers) stopCardAnim(name);
+}
+
+function stopCardAnim(name) {
+  const t = cardTimers.get(name);
+  if (t) clearTimeout(t.timer);
+  cardTimers.delete(name);
+}
+
+function startCardAnim(name, anim, cv, scale) {
+  stopCardAnim(name);
+  const state = { fi: 0 };
+
+  function tick() {
+    const frame = anim.frames[state.fi % anim.frames.length];
+    drawFrame(cv, anim.row, frame.c, scale);
+    state.fi++;
+    const delay = frame.d / speedMul;
+    state.timer = setTimeout(tick, delay);
+    cardTimers.set(name, state);
+  }
+  tick();
+}
+
+function drawFrame(cv, row, col, scale) {
+  const ctx = cv.getContext('2d');
+  ctx.imageSmoothingEnabled = false;
+  ctx.clearRect(0, 0, cv.width, cv.height);
+  ctx.drawImage(
+    img,
+    col * frameW, row * frameH, frameW, frameH,  // src
+    0, 0, frameW * scale, frameH * scale          // dst
+  );
+}
+
+// ── All-rows strip ────────────────────────────────────────────────────────────
+function buildStrip() {
+  stripDiv.innerHTML = '';
+  const rowNames = {};
+  for (const [n, a] of Object.entries(ANIMS)) rowNames[a.row] = n;
+
+  const STRIP_SCALE = Math.max(1, Math.min(4, Math.floor(48 / frameH)));
+
+  for (let r = 0; r < ROWS; r++) {
+    const row = document.createElement('div');
+    row.className = 'strip-row';
+
+    const lbl = document.createElement('div');
+    lbl.className = 'strip-label';
+    lbl.textContent = r;
+
+    const frames = document.createElement('div');
+    frames.className = 'strip-frames';
+
+    for (let c = 0; c < COLS; c++) {
+      const cv = document.createElement('canvas');
+      cv.width  = frameW * STRIP_SCALE;
+      cv.height = frameH * STRIP_SCALE;
+      const ctx = cv.getContext('2d');
+      ctx.imageSmoothingEnabled = false;
+      ctx.drawImage(img, c*frameW, r*frameH, frameW, frameH, 0, 0, cv.width, cv.height);
+      cv.title = `row ${r}, col ${c}`;
+      frames.appendChild(cv);
+    }
+
+    const nameLbl = document.createElement('div');
+    nameLbl.className = 'strip-row-name';
+    nameLbl.textContent = rowNames[r] || '';
+
+    row.appendChild(lbl);
+    row.appendChild(frames);
+    row.appendChild(nameLbl);
+    stripDiv.appendChild(row);
+  }
+}
+
+// ── Pet selector — populate from /pets/ directory listing ────────────────────
+const petSelect = document.getElementById('petSelect');
+
+(async function populatePets() {
+  try {
+    const r = await fetch('/pets/');
+    const html = await r.text();
+    const matches = [...html.matchAll(/href="([^"/][^"]+)\/"/g)];
+    for (const m of matches) {
+      const slug = m[1].replace(/\/$/, '');
+      const opt = document.createElement('option');
+      opt.value = slug;
+      opt.textContent = slug;
+      petSelect.appendChild(opt);
+    }
+  } catch (e) { /* pets dir not accessible */ }
+})();
+
+petSelect.addEventListener('change', async () => {
+  const slug = petSelect.value;
+  if (!slug) return;
+  for (const ext of ['webp', 'png']) {
+    const path = `/pets/${slug}/spritesheet.${ext}`;
+    try {
+      const r = await fetch(path);
+      if (!r.ok) continue;
+      const blob = await r.blob();
+      loadFile(new File([blob], `${slug}.${ext}`, {type: blob.type}));
+      return;
+    } catch (_) {}
+  }
+  statusEl.textContent = `no spritesheet found for ${slug}`;
+});
+
+// ── Auto-load from ?pet= query param ─────────────────────────────────────────
+(function autoLoad() {
+  const p = new URLSearchParams(location.search).get('pet');
+  if (p) petSelect.value = p, petSelect.dispatchEvent(new Event('change'));
+})();
+</script>
+</body>
+</html>
