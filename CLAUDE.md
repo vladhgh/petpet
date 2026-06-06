@@ -45,7 +45,7 @@ Two halves that communicate **only through JSON files** in this directory — no
 
 ### Animation model
 
-Sprites are 8-col × 9-row spritesheets reused from Codex/petdex (`~/.codex/pets/<slug>/` or `~/.petdex/pets/<slug>/`). `ANIMS` in `PetPet.swift` maps each state name to a row + per-frame timings. State resolution priority lives in `resolvedState()`: physics toss > hover-crouch > agent state > autonomous idle behavior > plain idle. When adding a state, add it to `ANIMS` *and* have the hook emit it in `state.json`.
+Sprites are 8-col × 9-row spritesheets reused from Codex/petdex (`~/.codex/pets/<slug>/` or `~/.petdex/pets/<slug>/`). `ANIMS` in `PetPet.swift` maps each state name to a row + per-frame timings. State resolution priority lives in `resolvedState()`: physics toss > agent state > autonomous idle behavior > plain idle. The pet does not react to plain hover (drag still moves/tosses it). When adding a state, add it to `ANIMS` *and* have the hook emit it in `state.json`.
 
 Hook status text (the bubble) is in Russian — match that when editing `petpet-hook.py`.
 

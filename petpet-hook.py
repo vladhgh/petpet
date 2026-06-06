@@ -111,14 +111,22 @@ STATE = {"user-prompt": "jumping", "pre": "running",
          "post": "idle", "notify": "waiting", "stop": "waving"}.get(EVENT, "idle")
 sleep = False
 card = None          # dict {status,color,detail,ttl} or None to leave unchanged
+write_event = True   # set False to leave event.json untouched (keep the live card)
 
 
 def rec(sid):
-    return S.setdefault(sid, {"project": base(CWD), "path": short_path(CWD), "topic": "", "ts": time.time()})
+    return S.setdefault(sid, {"project": base(CWD), "path": short_path(CWD),
+                              "topic": "", "ts": time.time(), "busy": False})
+
+
+def all_idle():
+    # The pet sleeps only when no tracked session is busy (working or awaiting
+    # input) — so one session finishing never sleeps the pet while another works.
+    return not any(v.get("busy") for v in S.values())
 
 
 if EVENT == "session-start":
-    r = rec(SID); r["ts"] = time.time(); sess["active"] = SID
+    r = rec(SID); r["ts"] = time.time(); r["busy"] = False; sess["active"] = SID
     STATE = "jumping"
     card = {"title": "", "status": "Готов", "color": "green", "detail": r["path"], "ttl": 0}
 
@@ -126,19 +134,15 @@ elif EVENT == "session-end":
     S.pop(SID, None)
     if sess.get("active") == SID:
         sess["active"] = max(S, key=lambda k: S[k]["ts"]) if S else None
-    if not S:
-        STATE, sleep = "idle", True
-        card = {"title": "", "status": "Сплю", "color": "gray", "detail": "", "ttl": 0}
-    else:
-        STATE = "idle"
-        a = S[sess["active"]]
-        topic = a.get("topic", "")
-        # done: keep the topic as the title, the green icon means "done"
-        card = {"title": topic, "status": "" if topic else "Готово",
-                "color": "green", "detail": "" if topic else a.get("path", ""), "ttl": 0}
+    # sleep only once every session has ended or gone idle; either way clear the
+    # card so no bubble lingers (if another session still works it re-shows its own).
+    STATE, sleep = "idle", all_idle()
+    card = {"title": "", "status": "", "color": "gray", "detail": "", "ttl": 0}
 
 else:
-    r = rec(SID); r["ts"] = time.time(); sess["active"] = SID
+    # any of these means the session is live: keep the pet awake and the card
+    # sticky (ttl 0) so the status is ALWAYS visible until the next event.
+    r = rec(SID); r["ts"] = time.time(); r["busy"] = True; sess["active"] = SID
 
     if EVENT == "user-prompt":
         prompt = payload.get("prompt", "")
@@ -156,19 +160,19 @@ else:
                 r["topic"] = topic          # the plan beats the first-prompt fallback
             STATE = "running"
             card = {"title": r.get("topic", ""), "status": "Планирую",
-                    "color": "blue", "detail": "", "ttl": 6}
+                    "color": "blue", "detail": "", "ttl": 0}
         else:
             what = describe(tool, payload.get("tool_input"))
             if tool in ("Read", "Grep", "Glob", "NotebookRead", "WebFetch", "WebSearch"):
                 STATE = "review"
                 card = {"title": r.get("topic", ""), "status": "Читаю",
-                        "color": "blue", "detail": what, "ttl": 6}
+                        "color": "blue", "detail": what, "ttl": 0}
             else:
                 STATE = "running"
                 verb = {"Bash": "Выполняю", "Edit": "Редактирую", "MultiEdit": "Редактирую",
                         "Write": "Пишу", "Task": "Запускаю"}.get(tool, "Работаю")
                 card = {"title": r.get("topic", ""), "status": verb,
-                        "color": "blue", "detail": what, "ttl": 6}
+                        "color": "blue", "detail": what, "ttl": 0}
 
     elif EVENT == "post":
         resp = payload.get("tool_response")
@@ -176,7 +180,10 @@ else:
             STATE = "failed"
             card = {"title": r.get("topic", ""), "status": "Ошибка",
                     "color": "red", "detail": "Сбой инструмента", "ttl": 0}
-        # success: leave the card as-is
+        else:
+            # success: leave state + card exactly as the matching `pre` set them —
+            # don't rewrite event.json, or the always-on bubble blinks off between tools
+            write_event = False
 
     elif EVENT == "notify":
         STATE = "waiting"
@@ -184,11 +191,12 @@ else:
                 "detail": clip(payload.get("message") or "Нужен ответ", 60), "ttl": 0}
 
     elif EVENT == "stop":
-        STATE = "waving"
-        topic = r.get("topic", "")
-        # done: the title keeps the topic, the green icon means "done" — no "Готово"
-        card = {"title": topic, "status": "" if topic else "Готово",
-                "color": "green", "detail": "" if topic else r["path"], "ttl": 10}
+        # turn finished → this session is no longer busy. Sleep + clear the card
+        # when nothing else is working, so no bubble lingers while the agent idles.
+        r["busy"] = False
+        STATE = "idle"
+        sleep = all_idle()
+        card = {"title": "", "status": "", "color": "gray", "detail": "", "ttl": 0}
 
 save_sessions(sess)
 
@@ -201,9 +209,10 @@ def write(name, obj):
         pass
 
 
-event = {"state": STATE, "sleep": sleep}
-if card is not None:
-    event.update(card)
-write("event.json", event)
+if write_event:
+    event = {"state": STATE, "sleep": sleep}
+    if card is not None:
+        event.update(card)
+    write("event.json", event)
 
 sys.exit(0)

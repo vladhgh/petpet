@@ -1,7 +1,7 @@
 // PetPet — a tiny floating desktop mascot for AI coding agents.
 // Reuses Codex/petdex spritesheets (~/.codex/pets/<slug>/spritesheet.webp).
 // Driven by event.json written by petpet-hook.py:
-//   ~/Code/petpet/event.json  {"state":"running","sleep":false,"status":"Работаю","color":"blue","detail":"file.py","ttl":6}
+//   ~/Code/petpet/event.json  {"state":"running","sleep":false,"status":"Работаю","color":"blue","detail":"file.py","ttl":0}
 //
 // Build: swiftc -O PetPet.swift -o petpet   (use `petpetctl build` — it re-signs)
 
@@ -171,7 +171,6 @@ final class PetWindow: NSWindow {
 
 final class PetView: NSView {
     weak var owner: AppDelegate?
-    private var trackingArea: NSTrackingArea?
 
     override var isFlipped: Bool { false }
 
@@ -188,31 +187,14 @@ final class PetView: NSView {
         layer?.contents = cg
     }
 
-    override func updateTrackingAreas() {
-        super.updateTrackingAreas()
-        if let t = trackingArea { removeTrackingArea(t) }
-        let t = NSTrackingArea(rect: bounds,
-                               options: [.mouseEnteredAndExited, .cursorUpdate, .activeAlways, .inVisibleRect],
-                               owner: self, userInfo: nil)
-        addTrackingArea(t)
-        trackingArea = t
-    }
-
-    override func resetCursorRects() {
-        addCursorRect(bounds, cursor: .openHand)
-    }
-
-    override func mouseEntered(with event: NSEvent) { owner?.setHover(true);  NSCursor.openHand.push() }
-    override func mouseExited(with event: NSEvent)  { owner?.setHover(false); NSCursor.pop() }
-
+    // Drag to move / toss. The pet ignores plain hover — no cursor reaction.
     override func mouseDown(with event: NSEvent) {
         guard let win = window else { return }
         let m = NSEvent.mouseLocation
-        NSCursor.closedHand.push()
         owner?.beginDrag(grab: NSPoint(x: m.x - win.frame.origin.x, y: m.y - win.frame.origin.y))
     }
     override func mouseDragged(with event: NSEvent) { owner?.dragTo(mouse: NSEvent.mouseLocation) }
-    override func mouseUp(with event: NSEvent)      { NSCursor.pop(); owner?.releaseDrag() }
+    override func mouseUp(with event: NSEvent)      { owner?.releaseDrag() }
 
     override func menu(for event: NSEvent) -> NSMenu? {
         let m = NSMenu()
@@ -517,7 +499,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     var settingsWC: SettingsWindowController?
 
     var agentState = "idle"
-    var hovering   = false
     var playing    = ""
     var asleep     = false
 
@@ -534,7 +515,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     // bubble state (raw values kept to rebuild on font change)
     var hasCard       = false
-    var currentSticky = false
     var spinnerTimer: Timer?
     var lastTitle = "", lastStatus = "", lastDetail = "", lastColorName = "blue", lastTTL = 0.0
 
@@ -647,21 +627,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     // MARK: interaction
 
-    func setHover(_ on: Bool) {
-        hovering = on
-        if on, hasCard {
-            bubbleHideTimer?.invalidate()
-            bubbleWindow.setContentSize(bubbleView.fittingSize())
-            repositionBubble()
-            bubbleWindow.orderFront(nil)
-            if bubbleView.icon == .spinner { startSpinner() }
-        } else if !on, !currentSticky {
-            bubbleWindow.orderOut(nil); stopSpinner()
-        }
-        refreshDisplay()
-        updateWander()
-    }
-
     func tossFrame(_ vy: CGFloat) -> Int {
         if abs(vy) < 30 { return 0 }
         if vy > 260 { return 4 }
@@ -749,21 +714,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let sleep = (obj["sleep"] as? Bool) ?? false
         if sleep != asleep {
             asleep = sleep
-            let a: CGFloat = sleep ? 0.45 : 1.0
-            window.animator().alphaValue = a
-            bubbleWindow.animator().alphaValue = a
+            window.animator().alphaValue = sleep ? 0.45 : 1.0   // dim = "asleep"
             updateWander()
         }
         if let s = obj["state"] as? String { setAgentState(s) }
 
-        // bubble card
+        // bubble card — always shown while the agent works; hidden while asleep
         let title  = (obj["title"]  as? String) ?? ""
         let status = (obj["status"] as? String) ?? ""
         let detail = (obj["detail"] as? String) ?? (obj["text"] as? String ?? "")
         let color  = (obj["color"]  as? String) ?? "blue"
-        let ttl    = (obj["ttl"]    as? Double) ?? 6
-        if title.isEmpty && status.isEmpty && detail.isEmpty {
-            hasCard = false; currentSticky = false
+        let ttl    = (obj["ttl"]    as? Double) ?? 0
+        if asleep || (title.isEmpty && status.isEmpty && detail.isEmpty) {
+            hasCard = false
             lastTitle = ""; lastStatus = ""; lastDetail = ""
             bubbleWindow.orderOut(nil); stopSpinner()
         } else {
@@ -813,13 +776,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         bubbleWindow.orderFront(nil)
         if icon == .spinner { startSpinner() } else { stopSpinner() }
         if lastTTL > 0 {
-            currentSticky = false
             bubbleHideTimer = Timer.scheduledTimer(withTimeInterval: lastTTL, repeats: false) { [weak self] _ in
-                guard let self = self, !self.hovering else { return }
+                guard let self = self else { return }
                 self.bubbleWindow.orderOut(nil); self.stopSpinner()
             }
-        } else {
-            currentSticky = true
         }
     }
 
@@ -854,7 +814,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     // MARK: autonomous idle
 
     func canWander() -> Bool {
-        return agentState == "idle" && !hovering && !dragging && !tossing && !asleep
+        return agentState == "idle" && !dragging && !tossing && !asleep
     }
 
     func updateWander() {
@@ -898,7 +858,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     func resolvedState() -> String {
         if tossing              { return "toss" }
-        if hovering             { return "crouch" }
         if agentState != "idle" { return agentState }
         if let b = behaviorState { return b }
         return "idle"
@@ -914,7 +873,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     func scheduleFrame() {
         animTimer?.invalidate()
         if playing == "toss"   { return }
-        if playing == "crouch" { view.show(sprite.frame(row: JUMP_ROW, col: 0)); return }
         guard let anim = ANIMS[playing] else { return }
         let f = anim.frames[frameIndex % anim.frames.count]
         view.show(sprite.frame(row: anim.row, col: f.col))
