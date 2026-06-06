@@ -211,14 +211,25 @@ final class PetView: NSView {
         layer?.contents = cg
     }
 
-    // Drag to move / toss. The pet ignores plain hover — no cursor reaction.
+    // Drag to move / toss. The grabbing (closed-hand) cursor is set here because
+    // during a drag our app has the mouse captured, so set() sticks. The hover
+    // (open-hand) cursor can't be done from a tracking area — this window can't
+    // become key, so cursorUpdate never fires — so it lives in a global mouse
+    // monitor in AppDelegate (see installCursorMonitor).
     override func mouseDown(with event: NSEvent) {
         guard let win = window else { return }
+        NSCursor.closedHand.set()
         let m = NSEvent.mouseLocation
         owner?.beginDrag(grab: NSPoint(x: m.x - win.frame.origin.x, y: m.y - win.frame.origin.y))
     }
-    override func mouseDragged(with event: NSEvent) { owner?.dragTo(mouse: NSEvent.mouseLocation) }
-    override func mouseUp(with event: NSEvent)      { owner?.releaseDrag() }
+    override func mouseDragged(with event: NSEvent) {
+        NSCursor.closedHand.set()
+        owner?.dragTo(mouse: NSEvent.mouseLocation)
+    }
+    override func mouseUp(with event: NSEvent) {
+        owner?.releaseDrag()
+        NSCursor.openHand.set()
+    }
 
     override func menu(for event: NSEvent) -> NSMenu? {
         let m = NSMenu()
@@ -560,6 +571,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     var playing    = ""
     var asleep     = false
 
+    // hover cursor (open hand over the pet); driven by a global mouse monitor
+    var cursorOverPet = false
+
     // toss physics
     var dragging = false
     var didMove  = false
@@ -602,6 +616,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         sprite = spr
         NSApp.setActivationPolicy(.accessory)
         buildPetWindow()
+        installCursorMonitor()
         buildBubbleWindow()
         applyScale()
         refreshDisplay(force: true)
@@ -620,6 +635,28 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         window.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .stationary]
         window.contentView = view
         window.makeKeyAndOrderFront(nil)
+    }
+
+    // Hover cursor. A non-key accessory window never gets cursorUpdate/mouseMoved,
+    // so we watch every system mouse move (global = events to other apps, local =
+    // to us) and assert the open-hand cursor while the pointer is over the pet.
+    // We only touch the cursor over the pet — elsewhere we leave it to whatever
+    // app owns it, except for the one move that leaves the pet (restore arrow).
+    func installCursorMonitor() {
+        let handler: (NSEvent) -> Void = { [weak self] _ in self?.updateHoverCursor() }
+        NSEvent.addGlobalMonitorForEvents(matching: [.mouseMoved]) { handler($0) }
+        NSEvent.addLocalMonitorForEvents(matching: [.mouseMoved])  { handler($0); return $0 }
+    }
+
+    func updateHoverCursor() {
+        guard !dragging else { return }   // closed-hand is owned by the drag handlers
+        if window.frame.contains(NSEvent.mouseLocation) {
+            NSCursor.openHand.set()
+            cursorOverPet = true
+        } else if cursorOverPet {
+            NSCursor.arrow.set()
+            cursorOverPet = false
+        }
     }
 
     func buildBubbleWindow() {
