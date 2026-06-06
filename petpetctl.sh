@@ -14,7 +14,7 @@
 DIR="$HOME/Code/petpet"
 BIN="$DIR/petpet"
 CONFIG="$DIR/config.json"
-STATE="$DIR/state.json"
+EVENT="$DIR/event.json"
 
 set_json_key() {  # set_json_key <key> <raw-json-value>
   python3 - "$CONFIG" "$1" "$2" <<'PY'
@@ -68,7 +68,7 @@ case "$1" in
     ;;
   state)
     [ -z "$2" ] && { echo "usage: petpetctl state <name>"; exit 1; }
-    printf '{"state":"%s"}\n' "$2" > "$STATE"
+    printf '{"state":"%s","sleep":false}\n' "$2" > "$EVENT"
     echo "state -> $2"
     ;;
   build)

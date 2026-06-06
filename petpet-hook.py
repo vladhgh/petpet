@@ -1,7 +1,6 @@
 #!/usr/bin/env python3
 # petpet-hook.py <event> — map a Claude Code hook event + its stdin JSON into:
-#   state.json   {"state","sleep"}                       (mascot animation)
-#   bubble.json  {"status","color","detail","ttl"}       (status card)
+#   event.json   {"state","sleep","status","color","detail","ttl"}  (single file)
 # Tracks active sessions in session.json so the pet reflects the live session
 # and sleeps only when every session has ended. Fast, silent, never fails.
 #
@@ -169,8 +168,9 @@ def write(name, obj):
         pass
 
 
-write("state.json", {"state": STATE, "sleep": sleep})
+event = {"state": STATE, "sleep": sleep}
 if card is not None:
-    write("bubble.json", card)
+    event.update(card)
+write("event.json", event)
 
 sys.exit(0)
