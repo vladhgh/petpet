@@ -14,9 +14,13 @@ let PETPET_DIR = HOME + "/Code/petpet"
 let CONFIG_PATH = PETPET_DIR + "/config.json"
 let EVENT_PATH  = PETPET_DIR + "/event.json"
 
+// Sprite sheets live under Codex or petdex; webp preferred, png fallback.
+let PET_BASES   = ["\(HOME)/.codex/pets", "\(HOME)/.petdex/pets"]
+let SHEET_NAMES = ["spritesheet.webp", "spritesheet.png"]
+
 func petSpritesheetPath(_ slug: String) -> String? {
-    for base in ["\(HOME)/.codex/pets", "\(HOME)/.petdex/pets"] {
-        for name in ["spritesheet.webp", "spritesheet.png"] {
+    for base in PET_BASES {
+        for name in SHEET_NAMES {
             let p = "\(base)/\(slug)/\(name)"
             if FileManager.default.fileExists(atPath: p) { return p }
         }
@@ -26,10 +30,10 @@ func petSpritesheetPath(_ slug: String) -> String? {
 
 func availablePets() -> [String] {
     var slugs: Set<String> = []
-    for base in ["\(HOME)/.codex/pets", "\(HOME)/.petdex/pets"] {
+    for base in PET_BASES {
         guard let entries = try? FileManager.default.contentsOfDirectory(atPath: base) else { continue }
         for e in entries {
-            for name in ["spritesheet.webp", "spritesheet.png"] {
+            for name in SHEET_NAMES {
                 if FileManager.default.fileExists(atPath: "\(base)/\(e)/\(name)") {
                     slugs.insert(e); break
                 }

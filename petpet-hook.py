@@ -86,6 +86,14 @@ def active_todo(ti):
 
 # ---- session bookkeeping ---------------------------------------------------
 
+def write_json(path, obj):
+    try:
+        with open(path, "w") as f:
+            json.dump(obj, f)
+    except Exception:
+        pass
+
+
 def load_sessions():
     try:
         with open(SESS_PATH) as f:
@@ -97,11 +105,7 @@ def load_sessions():
 
 
 def save_sessions(d):
-    try:
-        with open(SESS_PATH, "w") as f:
-            json.dump(d, f)
-    except Exception:
-        pass
+    write_json(SESS_PATH, d)
 
 
 sess = load_sessions()
@@ -201,18 +205,10 @@ else:
 save_sessions(sess)
 
 
-def write(name, obj):
-    try:
-        with open(os.path.join(PETPET, name), "w") as f:
-            json.dump(obj, f)
-    except Exception:
-        pass
-
-
 if write_event:
     event = {"state": STATE, "sleep": sleep}
     if card is not None:
         event.update(card)
-    write("event.json", event)
+    write_json(os.path.join(PETPET, "event.json"), event)
 
 sys.exit(0)

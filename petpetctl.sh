@@ -49,7 +49,7 @@ case "$1" in
     ;;
   status)
     if pgrep -f "$BIN" >/dev/null 2>&1; then
-      echo "running (pet=$(python3 -c "import json;print(json.load(open('$CONFIG')).get('pet'))" 2>/dev/null), scale=$(python3 -c "import json;print(json.load(open('$CONFIG')).get('scale'))" 2>/dev/null))"
+      echo "running ($(python3 -c "import json;d=json.load(open('$CONFIG'));print(f\"pet={d.get('pet')}, scale={d.get('scale')}\")" 2>/dev/null))"
     else
       echo "stopped"
     fi
