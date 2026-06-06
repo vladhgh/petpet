@@ -10,14 +10,12 @@
   --bg:        #111113;
   --bg2:       #18181b;
   --bg3:       #212126;
-  --bg4:       #2a2a30;
   --border:    #2b2b32;
   --border2:   #38383f;
   --text:      #e4e4ec;
   --muted:     #7c7c8c;
   --faint:     #42424e;
   --accent:    #5b9bd5;
-  --accent2:   #7ab3e0;
   --accent-bg: #16202e;
   --r:         10px;
   --font:      "SF Mono", "Menlo", monospace;
@@ -25,14 +23,12 @@
 
 html, body { height: 100%; background: var(--bg); color: var(--text); font: 13px/1.5 var(--font); -webkit-font-smoothing: antialiased; }
 
-/* ── App shell ───────────────────────────────────────────────────────────── */
 #app { display: flex; flex-direction: column; height: 100%; }
 
 header {
   flex-shrink: 0;
   background: var(--bg2);
   border-bottom: 1px solid var(--border);
-  z-index: 10;
 }
 
 .toolbar {
@@ -42,35 +38,15 @@ header {
 
 .sep { width: 1px; height: 20px; background: var(--border2); flex-shrink: 0; }
 
-nav {
-  display: flex; align-items: flex-end;
-  padding: 0 18px; gap: 0;
-}
-
-.tab {
-  background: none; border: none;
-  border-bottom: 2px solid transparent;
-  color: var(--muted); font: inherit; font-size: 11px;
-  letter-spacing: 0.06em; text-transform: uppercase;
-  padding: 7px 14px; cursor: pointer;
-  transition: color 0.15s, border-color 0.15s;
-  outline: none;
-}
-.tab:hover { color: var(--text); }
-.tab.active { color: var(--accent); border-color: var(--accent); }
-
-/* ── Controls ────────────────────────────────────────────────────────────── */
 label { color: var(--muted); font-size: 11px; display: flex; align-items: center; gap: 6px; }
 
 select, input[type=number] {
   background: var(--bg3); border: 1px solid var(--border2); border-radius: 6px;
   color: var(--text); padding: 4px 8px; font: inherit; font-size: 11px;
-  transition: border-color 0.12s;
 }
 select:focus, input:focus { outline: none; border-color: var(--accent); }
 select { min-width: 150px; }
 input[type=number] { width: 52px; text-align: center; }
-
 input[type=range] { width: 100px; cursor: pointer; accent-color: var(--accent); }
 
 .file-btn {
@@ -85,7 +61,7 @@ input[type=range] { width: 100px; cursor: pointer; accent-color: var(--accent); 
 
 #speedVal { color: var(--faint); font-size: 11px; min-width: 30px; }
 
-/* ── View container ──────────────────────────────────────────────────────── */
+/* ── Views ─────────────────────────────────────────────────────────────────── */
 main { flex: 1; overflow: hidden; position: relative; }
 
 .view {
@@ -96,61 +72,17 @@ main { flex: 1; overflow: hidden; position: relative; }
 }
 .view.active { opacity: 1; pointer-events: auto; }
 
-/* Enter / exit keyframe animations ---------------------------------------- */
-@keyframes kFadeIn    { from { opacity:0; transform:translateY(7px); }  to { opacity:1; transform:none; } }
-@keyframes kFadeOut   { from { opacity:1; transform:none; }             to { opacity:0; transform:translateY(-5px); } }
 @keyframes kSlideUp   { from { opacity:0; transform:translateY(22px); } to { opacity:1; transform:none; } }
 @keyframes kSlideDown { from { opacity:1; transform:none; }             to { opacity:0; transform:translateY(18px); } }
 @keyframes kShrink    { from { opacity:1; transform:none; }             to { opacity:0; transform:scale(0.96) translateY(-6px); } }
 @keyframes kGrow      { from { opacity:0; transform:scale(0.96) translateY(-6px); } to { opacity:1; transform:none; } }
 
-.v-fade-in    { animation: kFadeIn    0.22s cubic-bezier(0.4,0,0.2,1) both; }
-.v-fade-out   { animation: kFadeOut   0.18s ease both; }
 .v-slide-up   { animation: kSlideUp   0.26s cubic-bezier(0.34,1.1,0.64,1) both; }
 .v-slide-down { animation: kSlideDown 0.2s  ease both; }
 .v-shrink     { animation: kShrink    0.2s  ease both; }
 .v-grow       { animation: kGrow      0.24s cubic-bezier(0.4,0,0.2,1) both; }
 
-/* ── Sheet view ──────────────────────────────────────────────────────────── */
-.sheet-layout { display: flex; gap: 28px; align-items: flex-start; }
-.sheet-left   { flex-shrink: 0; }
-
-#sheet-wrap {
-  position: relative; display: inline-block;
-  border: 1px solid var(--border); border-radius: 8px; overflow: hidden;
-  cursor: crosshair; max-width: 500px;
-}
-#sheet-canvas { display: block; image-rendering: pixelated; max-width: 500px; }
-#cell-overlay {
-  position: absolute; inset: 0; display: grid;
-}
-.cell {
-  border: 1px solid transparent;
-  transition: background 0.07s, border-color 0.07s;
-}
-.cell:hover   { background: rgba(91,155,213,.14); border-color: rgba(91,155,213,.4); }
-.cell.sel     { background: rgba(91,155,213,.22); border-color: rgba(91,155,213,.75); }
-
-/* Frame preview ------------------------------------------------------------ */
-.sheet-right {
-  flex: 1; display: flex; flex-direction: column;
-  align-items: center; gap: 16px; min-width: 160px;
-  padding-top: 2px;
-}
-.sheet-right.empty { opacity: 0.28; }
-
-.frame-box {
-  border: 1px solid var(--border2); border-radius: 10px;
-  background: var(--bg3); overflow: hidden;
-}
-#frame-canvas { display: block; image-rendering: pixelated; }
-
-.frame-meta { text-align: center; line-height: 2; }
-.fm-name { font-size: 15px; color: var(--text); display: block; font-weight: 600; }
-.fm-row  { font-size: 11px; color: var(--muted); }
-.fm-dim  { font-size: 10px; color: var(--faint); display: block; margin-top: 2px; }
-
-/* ── Animations view ─────────────────────────────────────────────────────── */
+/* ── Animations grid ───────────────────────────────────────────────────────── */
 #anims-grid {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(138px, 160px));
@@ -175,22 +107,15 @@ main { flex: 1; overflow: hidden; position: relative; }
   border-color: var(--border2);
 }
 .anim-card:active { transform: translateY(0); transition-duration: 0.08s; }
-.anim-card.lit {
-  border-color: var(--accent);
-  background: var(--accent-bg);
-}
+.anim-card.lit { border-color: var(--accent); background: var(--accent-bg); }
 
 .card-canvas { image-rendering: pixelated; }
-
 .card-lbl { text-align: center; width: 100%; }
-.cl-name  { display: block; font-size: 12px; font-weight: 600; color: var(--text); }
-.cl-meta  { font-size: 10px; color: var(--faint); }
+.cl-name { display: block; font-size: 12px; font-weight: 600; color: var(--text); }
+.cl-meta { font-size: 10px; color: var(--faint); }
 
-/* ── Detail view ─────────────────────────────────────────────────────────── */
-#view-detail .detail-inner {
-  display: flex; flex-direction: column; gap: 28px;
-  max-width: 860px;
-}
+/* ── Detail view ───────────────────────────────────────────────────────────── */
+.detail-inner { display: flex; flex-direction: column; gap: 28px; }
 
 .back-btn {
   align-self: flex-start;
@@ -218,12 +143,9 @@ main { flex: 1; overflow: hidden; position: relative; }
   color: var(--faint); margin-bottom: 12px;
 }
 
-.frames-strip { display: flex; flex-wrap: wrap; gap: 10px; align-items: flex-end; }
+.frames-strip { display: flex; flex-wrap: nowrap; gap: 10px; align-items: flex-end; }
 
-.thumb {
-  display: flex; flex-direction: column; align-items: center; gap: 4px;
-  cursor: default;
-}
+.thumb { display: flex; flex-direction: column; align-items: center; gap: 4px; }
 .thumb canvas {
   display: block; image-rendering: pixelated;
   border: 1px solid var(--border); border-radius: 5px;
@@ -234,76 +156,38 @@ main { flex: 1; overflow: hidden; position: relative; }
 .thumb .th-idx { font-size: 9px; color: var(--faint); }
 .thumb .th-dur { font-size: 9px; color: var(--muted); }
 
-/* ── Placeholder ─────────────────────────────────────────────────────────── */
 .empty-msg { color: var(--faint); font-size: 13px; padding: 56px 0; text-align: center; }
 </style>
 </head>
 <body>
-
 <div id="app">
 
-<!-- ── Header ────────────────────────────────────────────────────────────── -->
 <header>
   <div class="toolbar">
     <label>Pet
       <select id="petSelect"><option value="">— select —</option></select>
     </label>
-
     <div class="sep"></div>
-
     <label class="file-btn" id="dropZone">
       <input type="file" id="fileInput" accept="image/*">
       Open file
     </label>
-
     <div class="sep"></div>
-
     <label>Cols <input type="number" id="colsInput" value="8" min="1" max="64"></label>
     <label>Rows <input type="number" id="rowsInput" value="9" min="1" max="64"></label>
-
     <div class="sep"></div>
-
     <label>Speed <input type="range" id="speedSlider" min="10" max="500" value="100"></label>
     <span id="speedVal">1.0×</span>
   </div>
-
-  <nav>
-    <button class="tab active" data-view="sheet">Sheet</button>
-    <button class="tab" data-view="anims">Animations</button>
-  </nav>
 </header>
 
-<!-- ── Views ─────────────────────────────────────────────────────────────── -->
 <main>
-
-  <!-- View: Sheet -->
-  <div class="view active" id="view-sheet">
-    <div class="sheet-layout">
-      <div class="sheet-left">
-        <div id="sheet-wrap">
-          <canvas id="sheet-canvas"></canvas>
-          <div id="cell-overlay"></div>
-        </div>
-      </div>
-      <div class="sheet-right empty" id="sheet-right">
-        <div class="frame-box">
-          <canvas id="frame-canvas" width="128" height="128"></canvas>
-        </div>
-        <div class="frame-meta" id="frame-meta">
-          <span class="fm-row">click a cell to preview</span>
-        </div>
-      </div>
-    </div>
-  </div>
-
-  <!-- View: Animations grid -->
-  <div class="view" id="view-anims">
+  <div class="view active" id="view-anims">
     <div id="anims-grid">
       <p class="empty-msg">load a spritesheet to see animations</p>
     </div>
   </div>
 
-  <!-- View: Animation detail -->
   <div class="view" id="view-detail">
     <div class="detail-inner">
       <button class="back-btn" id="backBtn">← Animations</button>
@@ -322,12 +206,10 @@ main { flex: 1; overflow: hidden; position: relative; }
       </div>
     </div>
   </div>
-
 </main>
 </div>
 
 <script>
-// ── Animation table (from PetPet.swift) ───────────────────────────────────────
 function uniform(n, dur, last) {
   return Array.from({length: n}, (_, i) => ({c: i, d: i === n-1 ? last : dur}));
 }
@@ -343,12 +225,10 @@ const ANIMS = {
   "review":        {row:8, frames:uniform(6,150,280)},
 };
 
-// ── State ─────────────────────────────────────────────────────────────────────
 let img = null, COLS = 8, ROWS = 9, frameW = 0, frameH = 0, speedMul = 1;
-let activeView = 'sheet';
-const timers = new Map(); // id → timeout handle
+let activeView = 'anims';
+const timers = new Map();
 
-// ── DOM ───────────────────────────────────────────────────────────────────────
 const $ = id => document.getElementById(id);
 const petSelect   = $('petSelect');
 const dropZone    = $('dropZone');
@@ -357,11 +237,6 @@ const colsInput   = $('colsInput');
 const rowsInput   = $('rowsInput');
 const speedSlider = $('speedSlider');
 const speedValEl  = $('speedVal');
-const sheetCanvas = $('sheet-canvas');
-const cellOverlay = $('cell-overlay');
-const sheetRight  = $('sheet-right');
-const frameCanvas = $('frame-canvas');
-const frameMeta   = $('frame-meta');
 const animsGrid   = $('anims-grid');
 const detailCanvas= $('detail-canvas');
 const detailName  = $('detail-name');
@@ -369,42 +244,21 @@ const detailInfo  = $('detail-info');
 const framesStrip = $('frames-strip');
 const backBtn     = $('backBtn');
 
-// ── Navigation ────────────────────────────────────────────────────────────────
-document.querySelectorAll('.tab').forEach(t => t.addEventListener('click', () => {
-  const id = t.dataset.view;
-  if (activeView === 'detail' && id === 'anims') { goBack(); return; }
-  if (id !== activeView) transitionViews(activeView, id, 'flat');
-}));
-
-function setTabActive(id) {
-  document.querySelectorAll('.tab').forEach(t =>
-    t.classList.toggle('active', t.dataset.view === id || (id === 'detail' && t.dataset.view === 'anims'))
-  );
-}
-
+// ── Transitions ───────────────────────────────────────────────────────────────
 function transitionViews(fromId, toId, style) {
   const fromEl = $('view-' + fromId);
   const toEl   = $('view-' + toId);
   activeView = toId;
-  setTabActive(toId);
 
   const [exitCls, enterCls] = style === 'drill'
-    ? ['v-shrink',    'v-slide-up']
-    : style === 'back'
-    ? ['v-slide-down','v-grow']
-    : ['v-fade-out',  'v-fade-in'];
+    ? ['v-shrink', 'v-slide-up']
+    : ['v-slide-down', 'v-grow'];
 
-  // exit
   fromEl.classList.add(exitCls);
-  fromEl.addEventListener('animationend', () => {
-    fromEl.classList.remove('active', exitCls);
-  }, {once: true});
+  fromEl.addEventListener('animationend', () => fromEl.classList.remove('active', exitCls), {once: true});
 
-  // enter
   toEl.classList.add('active', enterCls);
-  toEl.addEventListener('animationend', () => {
-    toEl.classList.remove(enterCls);
-  }, {once: true});
+  toEl.addEventListener('animationend', () => toEl.classList.remove(enterCls), {once: true});
 }
 
 function goToDetail(name, anim) {
@@ -438,7 +292,6 @@ function loadFile(file) {
   image.src = url;
 }
 
-// ── Controls ──────────────────────────────────────────────────────────────────
 colsInput.addEventListener('change', () => { COLS = Math.max(1, +colsInput.value||8); if(img) rebuild(); });
 rowsInput.addEventListener('change', () => { ROWS = Math.max(1, +rowsInput.value||9); if(img) rebuild(); });
 speedSlider.addEventListener('input', () => {
@@ -466,70 +319,13 @@ petSelect.addEventListener('change', async () => {
   }
 });
 
-// ── Rebuild on new image ──────────────────────────────────────────────────────
+// ── Rebuild ───────────────────────────────────────────────────────────────────
 function rebuild() {
   stopAllTimers();
   if (activeView === 'detail') transitionViews('detail', 'anims', 'back');
   frameW = Math.floor(img.width  / COLS);
   frameH = Math.floor(img.height / ROWS);
-  drawSheet();
-  buildCellOverlay();
-  resetFramePanel();
   buildAnimCards();
-}
-
-// ── Sheet ─────────────────────────────────────────────────────────────────────
-function drawSheet() {
-  const scale = Math.min(1, 500 / img.width);
-  const dw = Math.round(img.width  * scale);
-  const dh = Math.round(img.height * scale);
-  sheetCanvas.width = dw; sheetCanvas.height = dh;
-  const ctx = sheetCanvas.getContext('2d');
-  ctx.imageSmoothingEnabled = false;
-  ctx.drawImage(img, 0, 0, dw, dh);
-}
-
-function buildCellOverlay() {
-  cellOverlay.style.gridTemplateColumns = `repeat(${COLS},1fr)`;
-  cellOverlay.style.gridTemplateRows    = `repeat(${ROWS},1fr)`;
-  cellOverlay.innerHTML = '';
-  for (let r = 0; r < ROWS; r++)
-    for (let c = 0; c < COLS; c++) {
-      const el = document.createElement('div');
-      el.className = 'cell';
-      el.addEventListener('click', () => selectCell(r, c, el));
-      cellOverlay.appendChild(el);
-    }
-}
-
-function selectCell(row, col, el) {
-  document.querySelectorAll('.cell').forEach(c => c.classList.remove('sel'));
-  el.classList.add('sel');
-  drawFramePreview(row, col);
-}
-
-function resetFramePanel() {
-  sheetRight.classList.add('empty');
-  const ctx = frameCanvas.getContext('2d');
-  frameCanvas.width = 128; frameCanvas.height = 128;
-  ctx.clearRect(0, 0, 128, 128);
-  frameMeta.innerHTML = '<span class="fm-row">click a cell to preview</span>';
-}
-
-function drawFramePreview(row, col) {
-  const scale = Math.max(1, Math.floor(160 / Math.max(frameW, frameH)));
-  frameCanvas.width = frameW * scale; frameCanvas.height = frameH * scale;
-  const ctx = frameCanvas.getContext('2d');
-  ctx.imageSmoothingEnabled = false;
-  ctx.drawImage(img, col*frameW, row*frameH, frameW, frameH, 0, 0, frameCanvas.width, frameCanvas.height);
-
-  sheetRight.classList.remove('empty');
-  const animName = Object.entries(ANIMS).find(([,a]) => a.row === row)?.[0];
-  frameMeta.innerHTML = `
-    <span class="fm-name">${animName ?? `row ${row}`}</span>
-    <span class="fm-row">row ${row} · col ${col}</span>
-    <span class="fm-dim">${frameW} × ${frameH} px · ${scale}× preview</span>
-  `;
 }
 
 // ── Animation cards ───────────────────────────────────────────────────────────
@@ -538,8 +334,7 @@ function buildAnimCards() {
   const usedRows = new Set(Object.values(ANIMS).map(a => a.row));
   const entries = [...Object.entries(ANIMS)];
   for (let r = 0; r < ROWS; r++)
-    if (!usedRows.has(r))
-      entries.push([`row ${r}`, {row: r, frames: uniform(COLS, 150, 150)}]);
+    if (!usedRows.has(r)) entries.push([`row ${r}`, {row: r, frames: uniform(COLS, 150, 150)}]);
 
   for (const [name, anim] of entries) {
     if (anim.row >= ROWS) continue;
@@ -562,41 +357,59 @@ function makeCard(name, anim) {
 
   card.append(cv, lbl);
   startAnim(`card:${name}`, anim, cv, scale);
-
   card.addEventListener('click', () => {
     document.querySelectorAll('.anim-card').forEach(c => c.classList.remove('lit'));
     card.classList.add('lit');
     goToDetail(name, anim);
   });
-
   return card;
 }
 
-// ── Detail view ───────────────────────────────────────────────────────────────
+// ── Detail ────────────────────────────────────────────────────────────────────
 function populateDetail(name, anim) {
   stopAnim('detail');
 
-  const scale = Math.max(1, Math.floor(160 / frameH));
-  detailCanvas.width  = frameW * scale;
-  detailCanvas.height = frameH * scale;
-  startAnim('detail', anim, detailCanvas, scale);
+  const heroScale = Math.max(1, Math.floor(160 / frameH));
+  detailCanvas.width  = frameW * heroScale;
+  detailCanvas.height = frameH * heroScale;
+  startAnim('detail', anim, detailCanvas, heroScale);
 
   detailName.textContent = name;
   detailInfo.innerHTML = `row ${anim.row} &nbsp;·&nbsp; ${anim.frames.length} frames &nbsp;·&nbsp; ${frameW}×${frameH} px`;
 
+  // Build frames strip sized to fill exactly one row.
+  // view-detail is position:absolute;inset:0 so clientWidth is always valid.
+  const viewW = $('view-detail').clientWidth;
+  const PAD = 44; // 22px × 2
+  const GAP = 10;
+  const n = anim.frames.length;
+  const availW = viewW - PAD;
+  const cellW = Math.floor((availW - GAP * (n - 1)) / n);
+  const cellH = Math.round(cellW * frameH / frameW);
+  // Cap height so they don't become huge on wide viewports
+  const MAX_H = 140;
+  const finalH = Math.min(MAX_H, cellH);
+  const finalW = Math.round(finalH * frameW / frameH);
+
   framesStrip.innerHTML = '';
-  const ts = Math.max(1, Math.floor(64 / frameH));
   anim.frames.forEach((frame, i) => {
     const wrap = document.createElement('div');
     wrap.className = 'thumb';
+
     const cv = document.createElement('canvas');
-    cv.width = frameW * ts; cv.height = frameH * ts;
+    // Render at 1× (source resolution), display via CSS
+    cv.width = frameW; cv.height = frameH;
+    cv.style.width  = finalW + 'px';
+    cv.style.height = finalH + 'px';
     const ctx = cv.getContext('2d');
     ctx.imageSmoothingEnabled = false;
-    ctx.drawImage(img, frame.c*frameW, anim.row*frameH, frameW, frameH, 0, 0, cv.width, cv.height);
-    const idx = Object.assign(document.createElement('div'), {className:'th-idx', textContent:`f${i}`});
-    const dur = Object.assign(document.createElement('div'), {className:'th-dur', textContent:`${frame.d}ms`});
-    wrap.append(cv, idx, dur);
+    ctx.drawImage(img, frame.c*frameW, anim.row*frameH, frameW, frameH, 0, 0, frameW, frameH);
+
+    wrap.append(
+      cv,
+      Object.assign(document.createElement('div'), {className:'th-idx', textContent:`f${i}`}),
+      Object.assign(document.createElement('div'), {className:'th-dur', textContent:`${frame.d}ms`}),
+    );
     framesStrip.appendChild(wrap);
   });
 }
@@ -605,20 +418,17 @@ function populateDetail(name, anim) {
 function stopAnim(id) {
   if (timers.has(id)) { clearTimeout(timers.get(id)); timers.delete(id); }
 }
-function stopAllTimers() {
-  timers.forEach(t => clearTimeout(t)); timers.clear();
-}
+function stopAllTimers() { timers.forEach(clearTimeout); timers.clear(); }
 function startAnim(id, anim, canvas, scale) {
   stopAnim(id);
   let fi = 0;
   const tick = () => {
     if (!img) return;
-    const f = anim.frames[fi % anim.frames.length];
+    const f = anim.frames[fi++ % anim.frames.length];
     const ctx = canvas.getContext('2d');
     ctx.imageSmoothingEnabled = false;
     ctx.clearRect(0, 0, canvas.width, canvas.height);
     ctx.drawImage(img, f.c*frameW, anim.row*frameH, frameW, frameH, 0, 0, frameW*scale, frameH*scale);
-    fi++;
     timers.set(id, setTimeout(tick, f.d / speedMul));
   };
   tick();
