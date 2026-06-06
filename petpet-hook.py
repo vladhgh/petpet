@@ -23,7 +23,8 @@ PETPET = os.path.join(os.path.expanduser("~"), "Code/petpet")
 SESS_PATH = os.path.join(PETPET, "session.json")
 EVENT_PATH = os.path.join(PETPET, "event.json")
 HOME = os.path.expanduser("~")
-GRACE = 6.0   # seconds a finished session lingers on "Готово" before sleeping
+GRACE = 6.0       # seconds a finished session lingers on "Готово" before sleeping
+READY_GRACE = 4.0 # seconds a just-started session greets before it stops winning
 
 if os.path.exists(os.path.join(PETPET, "hooks-disabled")):
     sys.exit(0)
@@ -216,7 +217,7 @@ def tier(r):
     ph = r.get("phase", "idle")
     if ph == "waiting":  return 4
     if ph == "working":  return 3
-    if ph == "ready":    return 2
+    if ph == "ready":    return 2 if (time.time() - r.get("ts", 0)) < READY_GRACE else 0
     if ph == "finished": return 1 if (time.time() - r.get("ts", 0)) < GRACE else 0
     return 0
 
