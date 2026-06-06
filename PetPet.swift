@@ -273,38 +273,32 @@ final class BubbleView: NSView {
         let boxRect = NSRect(x: 1, y: tDY,
                              width:  bounds.width  - tDX - 2,
                              height: bounds.height - tDY - 2)
-        let box = NSBezierPath(roundedRect: boxRect, xRadius: r, yRadius: r)
-
-        // Tail: triangle from box's bottom-right corner (~45°) to window's bottom-right.
-        let bx = boxRect.maxX, by = boxRect.minY   // bottom-right of box
+        // One continuous outline: box edges with the bottom-right corner replaced
+        // by the tail, so there's no internal corner/seam to patch over.
+        let minX = boxRect.minX, maxX = boxRect.maxX
+        let minY = boxRect.minY, maxY = boxRect.maxY
+        let bx = maxX, by = minY                    // box's bottom-right corner
         let tipX = bounds.maxX - 1, tipY: CGFloat = 2
-        let tail = NSBezierPath()
-        tail.move(to: NSPoint(x: bx - tM, y: by))     // mouth left  (on bottom edge)
-        tail.line(to: NSPoint(x: tipX,    y: tipY))    // tip
-        tail.line(to: NSPoint(x: bx,      y: by + tM)) // mouth right (on right edge)
-        tail.close()
+        let outline = NSBezierPath()
+        outline.move(to: NSPoint(x: minX + r, y: maxY))                 // top edge, after TL corner
+        outline.line(to: NSPoint(x: maxX - r, y: maxY))                 // → top-right
+        outline.appendArc(withCenter: NSPoint(x: maxX - r, y: maxY - r),
+                          radius: r, startAngle: 90, endAngle: 0, clockwise: true)
+        outline.line(to: NSPoint(x: maxX, y: by + tM))                  // right edge → mouth-right
+        outline.line(to: NSPoint(x: tipX, y: tipY))                     // → tail tip
+        outline.line(to: NSPoint(x: bx - tM, y: minY))                  // → mouth-left (bottom edge)
+        outline.line(to: NSPoint(x: minX + r, y: minY))                 // bottom edge → BL corner
+        outline.appendArc(withCenter: NSPoint(x: minX + r, y: minY + r),
+                          radius: r, startAngle: 270, endAngle: 180, clockwise: true)
+        outline.line(to: NSPoint(x: minX, y: maxY - r))                 // left edge → TL corner
+        outline.appendArc(withCenter: NSPoint(x: minX + r, y: maxY - r),
+                          radius: r, startAngle: 180, endAngle: 90, clockwise: true)
+        outline.close()
 
-        // fill box + tail
-        let region = box.copy() as! NSBezierPath
-        region.append(tail)
         BubbleView.parchment.setFill()
-        region.fill()
-
-        // border
+        outline.fill()
         BubbleView.ink.setStroke()
-        box.lineWidth = 1.5; box.stroke()
-        let edges = NSBezierPath()
-        edges.move(to: NSPoint(x: bx - tM, y: by))
-        edges.line(to: NSPoint(x: tipX,    y: tipY))
-        edges.line(to: NSPoint(x: bx,      y: by + tM))
-        edges.lineWidth = 1.5; edges.stroke()
-
-        // erase the seam at the box bottom-right corner where tail meets box border
-        BubbleView.parchment.setStroke()
-        let seam = NSBezierPath()
-        seam.move(to: NSPoint(x: bx - tM + 1, y: by))
-        seam.line(to: NSPoint(x: bx,           y: by + tM - 1))
-        seam.lineWidth = 2.5; seam.stroke()
+        outline.lineWidth = 1.5; outline.lineJoinStyle = .round; outline.stroke()
 
         // inner engraved hairline
         let innerRect = boxRect.insetBy(dx: 3.5, dy: 3.5)
