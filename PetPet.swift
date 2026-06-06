@@ -72,6 +72,11 @@ struct Config {
     var y: CGFloat? = nil
     var bubbleFont: String = "Courier New"
     var bubbleFontSize: CGFloat = 12.0
+    var bubbleWidth: CGFloat = 140.0     // text-column width of the card
+    var bubbleMaxLines: Int = 0          // 0 = unlimited; otherwise clamp the title (тема чата)
+    var bubbleTitleSize: CGFloat = 0     // 0 = derive from bubbleFontSize + 2
+    var bubbleOffsetX: CGFloat = 0       // nudge the card off its auto position
+    var bubbleOffsetY: CGFloat = 0
 
     static func load() -> Config {
         var c = Config()
@@ -82,15 +87,23 @@ struct Config {
         if let s  = obj["scale"]          as? Double { c.scale          = CGFloat(s) }
         if let x  = obj["x"]              as? Double { c.x              = CGFloat(x) }
         if let y  = obj["y"]              as? Double { c.y              = CGFloat(y) }
-        if let f  = obj["bubbleFont"]     as? String { c.bubbleFont     = f }
-        if let fs = obj["bubbleFontSize"] as? Double { c.bubbleFontSize = CGFloat(fs) }
+        if let f  = obj["bubbleFont"]      as? String { c.bubbleFont      = f }
+        if let fs = obj["bubbleFontSize"]  as? Double { c.bubbleFontSize  = CGFloat(fs) }
+        if let w  = obj["bubbleWidth"]     as? Double { c.bubbleWidth     = CGFloat(w) }
+        if let ml = obj["bubbleMaxLines"]  as? Int    { c.bubbleMaxLines  = ml }
+        if let ts = obj["bubbleTitleSize"] as? Double { c.bubbleTitleSize = CGFloat(ts) }
+        if let ox = obj["bubbleOffsetX"]   as? Double { c.bubbleOffsetX   = CGFloat(ox) }
+        if let oy = obj["bubbleOffsetY"]   as? Double { c.bubbleOffsetY   = CGFloat(oy) }
         return c
     }
 
     func save() {
         var obj: [String: Any] = [
             "pet": pet, "scale": Double(scale),
-            "bubbleFont": bubbleFont, "bubbleFontSize": Double(bubbleFontSize)
+            "bubbleFont": bubbleFont, "bubbleFontSize": Double(bubbleFontSize),
+            "bubbleWidth": Double(bubbleWidth), "bubbleMaxLines": bubbleMaxLines,
+            "bubbleTitleSize": Double(bubbleTitleSize),
+            "bubbleOffsetX": Double(bubbleOffsetX), "bubbleOffsetY": Double(bubbleOffsetY)
         ]
         if let x = x { obj["x"] = Double(x) }
         if let y = y { obj["y"] = Double(y) }
@@ -263,8 +276,9 @@ final class BubbleView: NSView {
     var titleFont = NSFont.monospacedSystemFont(ofSize: 13, weight: .bold)
     var subFont   = NSFont.monospacedSystemFont(ofSize: 11, weight: .regular)
     var spinnerPhase = 0
+    var maxTextWidth: CGFloat = 140   // text-column width (configurable)
+    var maxLines = 0                  // 0 = unlimited; otherwise clamp the title
 
-    static let maxTextWidth: CGFloat = 140
     static let padX: CGFloat = 10
     static let padY: CGFloat = 7
     static let lineGap: CGFloat = 3
@@ -295,18 +309,23 @@ final class BubbleView: NSView {
         return p
     }
 
-    private func measuredH(_ s: String, font: NSFont, maxW: CGFloat) -> CGFloat {
+    private func measuredH(_ s: String, font: NSFont, maxW: CGFloat, lineLimit: Int = 0) -> CGFloat {
         guard !s.isEmpty else { return 0 }
-        return ceil((s as NSString).boundingRect(with: NSSize(width: maxW, height: 9999),
+        let h = ceil((s as NSString).boundingRect(with: NSSize(width: maxW, height: 9999),
             options: BubbleView.drawOpts,
             attributes: [.font: font, .paragraphStyle: wrapStyle(.byWordWrapping)]).height)
+        if lineLimit > 0 {
+            let cap = ceil(lineHeight(font) * CGFloat(lineLimit))
+            return min(h, cap)
+        }
+        return h
     }
 
     private struct Metrics { var titleH, subH, detailH, codeBoxH, total: CGFloat }
 
     private func layoutMetrics() -> Metrics {
-        let maxW = BubbleView.maxTextWidth
-        let tH  = measuredH(title,    font: titleFont, maxW: maxW)
+        let maxW = maxTextWidth
+        let tH  = measuredH(title,    font: titleFont, maxW: maxW, lineLimit: maxLines)
         let sH  = measuredH(subtitle, font: subFont,   maxW: maxW)
         let dW  = detailIsCode ? maxW - BubbleView.codeInsetX * 2 : maxW
         let dH  = measuredH(detail, font: subFont, maxW: dW)
@@ -320,7 +339,7 @@ final class BubbleView: NSView {
 
     func fittingSize() -> NSSize {
         let m = layoutMetrics()
-        let boxW = BubbleView.maxTextWidth + BubbleView.iconGap + BubbleView.iconSize + BubbleView.padX * 2
+        let boxW = maxTextWidth + BubbleView.iconGap + BubbleView.iconSize + BubbleView.padX * 2
         let boxH = max(m.total, BubbleView.iconSize) + BubbleView.padY * 2
         return NSSize(width:  boxW + BubbleView.tailDX + 4,
                       height: boxH + BubbleView.tailDY + 3)
@@ -365,16 +384,18 @@ final class BubbleView: NSView {
 
         let m     = layoutMetrics()
         let textX = boxRect.minX + BubbleView.padX
-        let maxW  = BubbleView.maxTextWidth
+        let maxW  = maxTextWidth
         var curY  = boxRect.midY + m.total / 2   // top of content block, walking downward
 
-        let pWrap = wrapStyle(.byWordWrapping)
-        let pCode = wrapStyle(.byCharWrapping)
+        let pWrap  = wrapStyle(.byWordWrapping)
+        let pCode  = wrapStyle(.byCharWrapping)
+        // When the title is line-clamped, truncate the last visible line with "…".
+        let pTitle = maxLines > 0 ? wrapStyle(.byTruncatingTail) : pWrap
 
         if m.titleH > 0 {
             let rect = NSRect(x: textX, y: curY - m.titleH, width: maxW, height: m.titleH)
             (title as NSString).draw(with: rect, options: BubbleView.drawOpts,
-                attributes: [.font: titleFont, .foregroundColor: BubbleView.ink, .paragraphStyle: pWrap])
+                attributes: [.font: titleFont, .foregroundColor: BubbleView.ink, .paragraphStyle: pTitle])
             curY -= m.titleH
         }
         if m.subH > 0 {
@@ -460,10 +481,15 @@ final class SettingsWindowController: NSWindowController {
     private var petPopup: NSPopUpButton!
     private var fontPopup: NSPopUpButton!
     private var sizeField: NSTextField!
+    private var widthField: NSTextField!
+    private var linesField: NSTextField!
+    private var titleSizeField: NSTextField!
+    private var offXField: NSTextField!
+    private var offYField: NSTextField!
 
     convenience init(app: AppDelegate) {
         let panel = NSPanel(
-            contentRect: NSRect(x: 0, y: 0, width: 300, height: 152),
+            contentRect: NSRect(x: 0, y: 0, width: 320, height: 280),
             styleMask: [.titled, .closable, .nonactivatingPanel],
             backing: .buffered, defer: false)
         panel.title = "PetPet Settings"
@@ -481,31 +507,53 @@ final class SettingsWindowController: NSWindowController {
         return l
     }
 
+    // A small integer text field wired to `action`, clamped by [min, max].
+    private func numField(min: Double, max: Double, action: Selector) -> NSTextField {
+        let f = NSTextField()
+        f.translatesAutoresizingMaskIntoConstraints = false
+        let fmt = NumberFormatter()
+        fmt.minimum = NSNumber(value: min); fmt.maximum = NSNumber(value: max)
+        fmt.allowsFloats = false
+        f.formatter = fmt
+        f.target = self; f.action = action
+        f.widthAnchor.constraint(equalToConstant: 44).isActive = true
+        return f
+    }
+
     private func buildUI() {
         guard let v = window?.contentView else { return }
 
         petPopup  = NSPopUpButton()
         fontPopup = NSPopUpButton()
-        sizeField = NSTextField()
-        sizeField.placeholderString = "12"
-        sizeField.translatesAutoresizingMaskIntoConstraints = false
-        let fmt = NumberFormatter()
-        fmt.minimum = 8; fmt.maximum = 24; fmt.allowsFloats = false
-        sizeField.formatter = fmt
-
-        let ptLabel = NSTextField(labelWithString: "pt")
-        let sizeRow = NSStackView(views: [sizeField, ptLabel])
-        sizeRow.spacing = 4; sizeRow.orientation = .horizontal; sizeRow.alignment = .centerY
-
         fontPopup.addItems(withTitles: BUBBLE_FONTS)
         petPopup.target  = self; petPopup.action  = #selector(petChanged)
         fontPopup.target = self; fontPopup.action = #selector(fontChanged)
-        sizeField.target = self; sizeField.action = #selector(sizeChanged)
+
+        sizeField      = numField(min: 8,    max: 24,  action: #selector(sizeChanged))
+        titleSizeField = numField(min: 0,    max: 36,  action: #selector(titleSizeChanged))
+        widthField     = numField(min: 60,   max: 400, action: #selector(widthChanged))
+        linesField     = numField(min: 0,    max: 20,  action: #selector(linesChanged))
+        offXField      = numField(min: -2000, max: 2000, action: #selector(offsetChanged))
+        offYField      = numField(min: -2000, max: 2000, action: #selector(offsetChanged))
+
+        func row(_ field: NSTextField, _ unit: String) -> NSStackView {
+            let r = NSStackView(views: [field, NSTextField(labelWithString: unit)])
+            r.spacing = 4; r.orientation = .horizontal; r.alignment = .centerY
+            return r
+        }
+        let offsetRow = NSStackView(views: [
+            offXField, NSTextField(labelWithString: "x"),
+            offYField, NSTextField(labelWithString: "y")])
+        offsetRow.spacing = 4; offsetRow.orientation = .horizontal; offsetRow.alignment = .centerY
 
         let grid = NSGridView(views: [
-            [makeLabel("Pet"),  petPopup],
-            [makeLabel("Font"), fontPopup],
-            [makeLabel("Size"), sizeRow],
+            [makeLabel("Pet"),        petPopup],
+            [makeLabel("Font"),       fontPopup],
+            [makeLabel("Size"),       row(sizeField, "pt")],
+            [makeLabel("Title size"), row(titleSizeField, "pt (0=авто)")],
+            [makeLabel("Width"),      row(widthField, "px")],
+            [makeLabel("Max lines"),  row(linesField, "(0=∞)")],
+            [makeLabel("Offset"),     offsetRow],
         ])
         grid.translatesAutoresizingMaskIntoConstraints = false
         grid.columnSpacing = 8; grid.rowSpacing = 8
@@ -521,7 +569,6 @@ final class SettingsWindowController: NSWindowController {
             grid.topAnchor.constraint(equalTo: v.topAnchor, constant: 16),
             grid.leadingAnchor.constraint(equalTo: v.leadingAnchor, constant: 16),
             grid.trailingAnchor.constraint(equalTo: v.trailingAnchor, constant: -16),
-            sizeField.widthAnchor.constraint(equalToConstant: 44),
             closeBtn.trailingAnchor.constraint(equalTo: v.trailingAnchor, constant: -16),
             closeBtn.bottomAnchor.constraint(equalTo: v.bottomAnchor, constant: -12),
         ])
@@ -537,7 +584,17 @@ final class SettingsWindowController: NSWindowController {
         petPopup.addItems(withTitles: pets)
         if let idx = pets.firstIndex(of: cfg.pet) { petPopup.selectItem(at: idx) }
         if let idx = BUBBLE_FONTS.firstIndex(of: cfg.bubbleFont) { fontPopup.selectItem(at: idx) }
-        sizeField.stringValue = "\(Int(cfg.bubbleFontSize))"
+        sizeField.stringValue      = "\(Int(cfg.bubbleFontSize))"
+        titleSizeField.stringValue = "\(Int(cfg.bubbleTitleSize))"
+        widthField.stringValue     = "\(Int(cfg.bubbleWidth))"
+        linesField.stringValue     = "\(cfg.bubbleMaxLines)"
+        offXField.stringValue      = "\(Int(cfg.bubbleOffsetX))"
+        offYField.stringValue      = "\(Int(cfg.bubbleOffsetY))"
+    }
+
+    private func intValue(_ f: NSTextField) -> Int {
+        (f.formatter as? NumberFormatter)?.number(from: f.stringValue)?.intValue
+            ?? Int(f.stringValue) ?? 0
     }
 
     @objc private func petChanged() {
@@ -549,9 +606,14 @@ final class SettingsWindowController: NSWindowController {
         app?.changeBubbleFont(name: name, size: app?.config.bubbleFontSize ?? 12)
     }
     @objc private func sizeChanged() {
-        let sz = CGFloat((sizeField.formatter as? NumberFormatter)?
-            .number(from: sizeField.stringValue)?.doubleValue ?? 12)
-        app?.changeBubbleFont(name: app?.config.bubbleFont ?? "Courier New", size: sz)
+        app?.changeBubbleFont(name: app?.config.bubbleFont ?? "Courier New",
+                              size: CGFloat(intValue(sizeField)))
+    }
+    @objc private func titleSizeChanged() { app?.changeBubbleTitleSize(CGFloat(intValue(titleSizeField))) }
+    @objc private func widthChanged()     { app?.changeBubbleWidth(CGFloat(intValue(widthField))) }
+    @objc private func linesChanged()     { app?.changeBubbleMaxLines(intValue(linesField)) }
+    @objc private func offsetChanged() {
+        app?.changeBubbleOffset(x: CGFloat(intValue(offXField)), y: CGFloat(intValue(offYField)))
     }
     @objc private func closePanel() { window?.orderOut(nil) }
 }
@@ -723,6 +785,31 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         applyCard()
     }
 
+    func changeBubbleWidth(_ w: CGFloat) {
+        config.bubbleWidth = max(60, min(400, w))
+        config.save()
+        if hasCard { applyCard() }
+    }
+
+    func changeBubbleMaxLines(_ n: Int) {
+        config.bubbleMaxLines = max(0, min(20, n))
+        config.save()
+        if hasCard { applyCard() }
+    }
+
+    func changeBubbleTitleSize(_ size: CGFloat) {
+        config.bubbleTitleSize = size <= 0 ? 0 : max(8, min(36, size))
+        config.save()
+        if hasCard { applyCard() }
+    }
+
+    func changeBubbleOffset(x: CGFloat, y: CGFloat) {
+        config.bubbleOffsetX = x
+        config.bubbleOffsetY = y
+        config.save()
+        repositionBubble()
+    }
+
     // MARK: interaction
 
     func tossFrame(_ vy: CGFloat) -> Int {
@@ -878,8 +965,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         bubbleView.detailIsCode = lastDetailCode
         bubbleView.icon         = icon
         bubbleView.accent    = statusColor(lastColorName)
-        bubbleView.titleFont = vintageFont(config.bubbleFont, config.bubbleFontSize + 2, bold: true)
-        bubbleView.subFont   = vintageFont(config.bubbleFont, config.bubbleFontSize,     bold: false)
+        let titleSz = config.bubbleTitleSize > 0 ? config.bubbleTitleSize : config.bubbleFontSize + 2
+        bubbleView.titleFont = vintageFont(config.bubbleFont, titleSz, bold: true)
+        bubbleView.subFont   = vintageFont(config.bubbleFont, config.bubbleFontSize, bold: false)
+        bubbleView.maxTextWidth = config.bubbleWidth
+        bubbleView.maxLines     = config.bubbleMaxLines
         bubbleView.needsDisplay = true
 
         bubbleHideTimer?.invalidate()
@@ -1003,8 +1093,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let pet = window.frame
         let b   = bubbleWindow.frame.size
         // Window's bottom-right corner is the tail tip — place it just left of pet at mid-height.
-        var x = pet.minX - 2 - b.width + 1
-        var y = pet.midY - 2
+        var x = pet.minX - 2 - b.width + 1 + config.bubbleOffsetX
+        var y = pet.midY - 2 + config.bubbleOffsetY
         if let vis = NSScreen.main?.visibleFrame {
             x = min(max(x, vis.minX + 4), vis.maxX - b.width - 4)
             y = min(max(y, vis.minY + 4), vis.maxY - b.height - 4)
