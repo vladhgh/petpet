@@ -718,9 +718,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     // MARK: polling (single event.json — merges state + bubble)
 
-    func poll() { pollEvent() }
-
-    func pollEvent() {
+    func poll() {
         guard let attrs = try? FileManager.default.attributesOfItem(atPath: EVENT_PATH),
               let mtime = (attrs[.modificationDate] as? Date)?.timeIntervalSince1970,
               mtime != lastEventMtime else { return }
@@ -740,7 +738,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // bubble card — always shown while the agent works; hidden while asleep
         let title  = (obj["title"]  as? String) ?? ""
         let status = (obj["status"] as? String) ?? ""
-        let detail = (obj["detail"] as? String) ?? (obj["text"] as? String ?? "")
+        let detail = (obj["detail"] as? String) ?? ""
         let color  = (obj["color"]  as? String) ?? "blue"
         let ttl    = (obj["ttl"]    as? Double) ?? 0
         if asleep || (title.isEmpty && status.isEmpty && detail.isEmpty) {
