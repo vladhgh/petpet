@@ -37,8 +37,8 @@ Two halves that communicate **only through JSON files** in this directory — no
 ### The JSON contract (how the two halves meet)
 
 - **`config.json`** — persistent settings: `pet`, `scale`, `x`, `y`. Written by the app (on drag/resize) and by `petpetctl`. This one is tracked in git; the other JSON files are not.
-- **`event.json`** — `{"state", "sleep", "title", "status", "color", "detail", "ttl"}`. Animation state + bubble card in one file. `ttl` seconds to show the card; `ttl: 0` = sticky until the next event.
-- **`session.json`** — the hook's own bookkeeping of active sessions, so the pet reflects the live session and only sleeps when *every* session has ended.
+- **`event.json`** — `{"state", "sleep", "title", "status", "color", "detail", "ttl", "sleep_after"}`. Animation state + bubble card in one file. `ttl` seconds to show the card; `ttl: 0` = sticky until the next event. Optional `sleep_after`: seconds to keep the card before the pet dozes off (used by a just-finished session to linger on "Готово" before sleeping).
+- **`session.json`** — the hook's per-session bookkeeping. Each session stores its own latest render (`phase`/`state`/`card`); the hook recomputes `event.json` by picking whichever session wins on `phase` priority (waiting > working > ready > finished > idle). So a session that just started or finished never steals the bubble from one still working, and the pet sleeps only when *every* session is idle.
 
 `event.json`, `session.json`, and the compiled `petpet` binary are gitignored — they're runtime artifacts. Source under version control is just the `.swift`, the two hook scripts, `petpetctl.sh`, and `config.json`.
 

@@ -2,6 +2,7 @@
 // Reuses Codex/petdex spritesheets (~/.codex/pets/<slug>/spritesheet.webp).
 // Driven by event.json written by petpet-hook.py:
 //   ~/Code/petpet/event.json  {"state":"running","sleep":false,"status":"Работаю","color":"blue","detail":"file.py","ttl":0}
+// Optional "sleep_after": N keeps this card up, then dozes the pet after N seconds.
 //
 // Build: swiftc -O PetPet.swift -o petpet   (use `petpetctl build` — it re-signs)
 
@@ -588,6 +589,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     var revertTimer: Timer?
     var stateGen = 0
     var bubbleHideTimer: Timer?
+    var sleepAfterTimer: Timer?   // delayed sleep after a "finished" card
 
     var lastEventMtime: TimeInterval = 0
 
@@ -771,7 +773,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         guard let data = FileManager.default.contents(atPath: EVENT_PATH),
               let obj  = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else { return }
 
-        // animation state
+        // animation state. A new event always cancels a pending delayed-sleep:
+        // whoever wrote this file is the freshest word on what the pet is doing.
+        sleepAfterTimer?.invalidate(); sleepAfterTimer = nil
         let sleep = (obj["sleep"] as? Bool) ?? false
         if sleep != asleep {
             asleep = sleep
@@ -779,6 +783,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             updateWander()
         }
         if let s = obj["state"] as? String { setAgentState(s) }
+
+        // sleep_after: show this card now, then drift to sleep after N seconds —
+        // lets a finished session linger on "Готово" before the pet dozes off.
+        let sleepAfter = (obj["sleep_after"] as? Double) ?? 0
+        if sleepAfter > 0 && !asleep {
+            sleepAfterTimer = Timer.scheduledTimer(withTimeInterval: sleepAfter, repeats: false) { [weak self] _ in
+                guard let self = self else { return }
+                self.asleep = true
+                self.window.animator().alphaValue = 0.45
+                self.hasCard = false
+                self.bubbleWindow.orderOut(nil); self.stopSpinner()
+                self.updateWander()
+            }
+        }
 
         // bubble card — always shown while the agent works; hidden while asleep
         let title  = (obj["title"]  as? String) ?? ""
