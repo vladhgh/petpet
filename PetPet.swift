@@ -135,6 +135,7 @@ final class Sprite {
     let frameW: Int
     let frameH: Int
     private var cells: [[CGImage]] = []
+    private var flippedCache: [ObjectIdentifier: CGImage] = [:]   // lazily mirrored frames
 
     init?(path: String) {
         guard let nsimg = NSImage(contentsOfFile: path),
@@ -155,11 +156,29 @@ final class Sprite {
         }
     }
 
-    func frame(row: Int, col: Int) -> CGImage? {
+    func frame(row: Int, col: Int, flipped: Bool = false) -> CGImage? {
         guard row >= 0, row < cells.count else { return nil }
         let rowCells = cells[row]
         guard !rowCells.isEmpty else { return nil }
-        return rowCells[min(col, rowCells.count - 1)]
+        let img = rowCells[min(col, rowCells.count - 1)]
+        return flipped ? mirrored(img) : img
+    }
+
+    // Horizontally mirror a frame (sprites face right by default), cached by identity.
+    private func mirrored(_ img: CGImage) -> CGImage {
+        let key = ObjectIdentifier(img)
+        if let cached = flippedCache[key] { return cached }
+        let w = img.width, h = img.height
+        let cs = img.colorSpace ?? CGColorSpaceCreateDeviceRGB()
+        guard let ctx = CGContext(data: nil, width: w, height: h,
+                                  bitsPerComponent: 8, bytesPerRow: 0, space: cs,
+                                  bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue) else { return img }
+        ctx.translateBy(x: CGFloat(w), y: 0)
+        ctx.scaleBy(x: -1, y: 1)
+        ctx.draw(img, in: CGRect(x: 0, y: 0, width: w, height: h))
+        let out = ctx.makeImage() ?? img
+        flippedCache[key] = out
+        return out
     }
 }
 
@@ -506,6 +525,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     var physicsTimer: Timer?
     let physDT: CGFloat = 1.0 / 60.0
     var tossing: Bool { physicsTimer != nil }
+    var facingLeft = false   // mirror toss/squat frames toward direction of motion
 
     // bubble state (raw values kept to rebuild on font change)
     var hasCard       = false
@@ -675,8 +695,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
 
         window.setFrameOrigin(NSPoint(x: px, y: py))
+        // Face the direction of horizontal motion (= toward the cursor while
+        // dragging, = throw direction in flight). Hysteresis avoids flicker.
+        if vx < -40 { facingLeft = true }
+        else if vx > 40 { facingLeft = false }
         let col = dragging ? 0 : tossFrame(vy)
-        view.show(sprite.frame(row: JUMP_ROW, col: col))
+        view.show(sprite.frame(row: JUMP_ROW, col: col, flipped: facingLeft))
         repositionBubble()
 
         if !dragging && abs(vx) < 7 && abs(vy) < 7 { stopPhysics() }
@@ -868,6 +892,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         animTimer?.invalidate()
         if playing == "toss"   { return }
         guard let anim = ANIMS[playing] else { return }
+        facingLeft = false   // non-toss anims always face right
         let f = anim.frames[frameIndex % anim.frames.count]
         view.show(sprite.frame(row: anim.row, col: f.col))
         animTimer = Timer.scheduledTimer(withTimeInterval: f.dur, repeats: false) { [weak self] _ in
