@@ -18,7 +18,7 @@ All control goes through `petpetctl.sh`:
 ./petpetctl.sh status
 ./petpetctl.sh pet <slug> # switch sprite + auto-restart
 ./petpetctl.sh scale <n>  # resize + auto-restart
-./petpetctl.sh state <x>  # force an animation state for testing (writes state.json)
+./petpetctl.sh state <x>  # force an animation state for testing (writes event.json)
 ./petpetctl.sh pets       # list installed pets
 ```
 
@@ -37,15 +37,14 @@ Two halves that communicate **only through JSON files** in this directory — no
 ### The JSON contract (how the two halves meet)
 
 - **`config.json`** — persistent settings: `pet`, `scale`, `x`, `y`. Written by the app (on drag/resize) and by `petpetctl`. This one is tracked in git; the other JSON files are not.
-- **`state.json`** — `{"state": <anim>, "sleep": <bool>}`. The animation to play and whether the pet is dimmed/asleep.
-- **`bubble.json`** — `{"status", "color", "detail", "ttl"}`. The status card text. `ttl` seconds to show it; `ttl: 0` = sticky until the next event.
+- **`event.json`** — `{"state", "sleep", "title", "status", "color", "detail", "ttl"}`. Animation state + bubble card in one file. `ttl` seconds to show the card; `ttl: 0` = sticky until the next event.
 - **`session.json`** — the hook's own bookkeeping of active sessions, so the pet reflects the live session and only sleeps when *every* session has ended.
 
-`state.json`, `bubble.json`, `session.json`, and the compiled `petpet` binary are gitignored — they're runtime artifacts. Source under version control is just the `.swift`, the two hook scripts, `petpetctl.sh`, and `config.json`.
+`event.json`, `session.json`, and the compiled `petpet` binary are gitignored — they're runtime artifacts. Source under version control is just the `.swift`, the two hook scripts, `petpetctl.sh`, and `config.json`.
 
 ### Animation model
 
-Sprites are 8-col × 9-row spritesheets reused from Codex/petdex (`~/.codex/pets/<slug>/` or `~/.petdex/pets/<slug>/`). `ANIMS` in `PetPet.swift` maps each state name to a row + per-frame timings. State resolution priority lives in `resolvedState()`: physics toss > agent state > autonomous idle behavior > plain idle. The pet does not react to plain hover (drag still moves/tosses it). When adding a state, add it to `ANIMS` *and* have the hook emit it in `state.json`.
+Sprites are 8-col × 9-row spritesheets reused from Codex/petdex (`~/.codex/pets/<slug>/` or `~/.petdex/pets/<slug>/`). `ANIMS` in `PetPet.swift` maps each state name to a row + per-frame timings. State resolution priority lives in `resolvedState()`: physics toss > agent state > autonomous idle behavior > plain idle. The pet does not react to plain hover (drag still moves/tosses it). When adding a state, add it to `ANIMS` *and* have the hook emit it in `event.json`.
 
 Hook status text (the bubble) is in Russian — match that when editing `petpet-hook.py`.
 
