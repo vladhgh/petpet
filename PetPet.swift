@@ -855,11 +855,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     // MARK: interaction
 
-    func tossFrame(_ vy: CGFloat) -> Int {
-        if abs(vy) < 30 { return 0 }
-        if vy > 260 { return 4 }
-        if vy > 90  { return 3 }
-        if vy > 30  { return 2 }
+    func jumpFrame(for verticalVelocity: CGFloat) -> Int {
+        if abs(verticalVelocity) < 30 { return 0 }
+        if verticalVelocity > 260 { return 4 }
+        if verticalVelocity > 90  { return 3 }
+        if verticalVelocity > 30  { return 2 }
         return 1
     }
 
@@ -936,7 +936,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // dragging, = throw direction in flight). Hysteresis avoids flicker.
         if vx < -40 { facingLeft = true }
         else if vx > 40 { facingLeft = false }
-        let col = dragging ? 0 : tossFrame(vy)
+        let col = jumpFrame(for: vy)
         view.show(sprite.frame(row: JUMP_ROW, col: col, flipped: facingLeft))
         repositionBubble()
 
