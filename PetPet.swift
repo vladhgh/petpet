@@ -685,6 +685,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     var didMove  = false
     var px: CGFloat = 0, py: CGFloat = 0
     var vx: CGFloat = 0, vy: CGFloat = 0
+    var thrown = false   // in gravity flight after a real toss (vs. gentle drop)
     var anchorX: CGFloat = 0, anchorY: CGFloat = 0
     var grabDX: CGFloat = 0, grabDY: CGFloat = 0
     var physicsTimer: Timer?
@@ -867,7 +868,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         px = window.frame.origin.x; py = window.frame.origin.y
         anchorX = px; anchorY = py
         grabDX = grab.x; grabDY = grab.y
-        vx = 0; vy = 0
+        vx = 0; vy = 0; thrown = false
         startPhysics(); refreshDisplay(); updateWander()
     }
 
@@ -876,7 +877,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         if abs(anchorX - px) > 2 || abs(anchorY - py) > 2 { didMove = true }
     }
 
-    func releaseDrag() { dragging = false }
+    func releaseDrag() {
+        dragging = false
+        // A real toss (let go while still moving) enters gravity flight; a gentle
+        // placement (let go nearly still) just stays where it was dropped.
+        let launch: CGFloat = 150
+        thrown = hypot(vx, vy) >= launch
+        if thrown { vx *= 0.45; vy *= 0.45 }   // soften the throw — don't fling it across the screen
+        else      { vx = 0; vy = 0 }
+    }
 
     func startPhysics() {
         if physicsTimer != nil { return }
@@ -892,6 +901,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             let k: CGFloat = 620, damp: CGFloat = 26
             vx += (k * (anchorX - px) - damp * vx) * dt
             vy += (k * (anchorY - py) - damp * vy) * dt
+        } else if thrown {
+            // In flight after a toss: gravity pulls down (origin is bottom-left,
+            // so "down" is -y) and a light air drag lets the horizontal throw
+            // glide on instead of stopping dead the instant the mouse releases.
+            let gravity: CGFloat = 2200, airDrag: CGFloat = 0.99
+            vy -= gravity * dt
+            vx *= airDrag
         } else {
             vx *= 0.82; vy *= 0.82
         }
@@ -899,12 +915,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         vx = max(-cap, min(cap, vx)); vy = max(-cap, min(cap, vy))
         px += vx * dt; py += vy * dt
 
+        var onFloor = true
         if let vis = NSScreen.main?.visibleFrame {
             let w = window.frame.width, h = window.frame.height
-            if px < vis.minX { px = vis.minX; vx =  abs(vx) * 0.5 }
-            if px > vis.maxX - w { px = vis.maxX - w; vx = -abs(vx) * 0.5 }
-            if py < vis.minY { py = vis.minY; vy =  abs(vy) * 0.5 }
-            if py > vis.maxY - h { py = vis.maxY - h; vy = -abs(vy) * 0.5 }
+            let bounce: CGFloat = 0.5                 // restitution off the edges
+            if px < vis.minX     { px = vis.minX;     vx =  abs(vx) * bounce }
+            if px > vis.maxX - w { px = vis.maxX - w; vx = -abs(vx) * bounce }
+            if py > vis.maxY - h { py = vis.maxY - h; vy = -abs(vy) * bounce }
+            if py < vis.minY {                        // land on the floor (no bounce)
+                py = vis.minY
+                vy = 0
+                vx *= 0.78                            // ground friction while skidding to rest
+            }
+            onFloor = py <= vis.minY + 1
         }
 
         window.setFrameOrigin(NSPoint(x: px, y: py))
@@ -916,12 +939,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         view.show(sprite.frame(row: JUMP_ROW, col: col, flipped: facingLeft))
         repositionBubble()
 
-        if !dragging && abs(vx) < 7 && abs(vy) < 7 { stopPhysics() }
+        // A toss keeps going until it has come to rest on the floor; a gentle
+        // drop (not thrown) settles the moment it's nearly still.
+        if !dragging && abs(vx) < 8 && abs(vy) < 25 && (!thrown || onFloor) {
+            stopPhysics()
+        }
     }
 
     func stopPhysics() {
         physicsTimer?.invalidate(); physicsTimer = nil
-        vx = 0; vy = 0
+        vx = 0; vy = 0; thrown = false
         if didMove {
             config.x = window.frame.origin.x; config.y = window.frame.origin.y
             config.save()
