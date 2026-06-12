@@ -22,6 +22,7 @@ EVENT = sys.argv[1] if len(sys.argv) > 1 else ""
 PETPET = os.path.join(os.path.expanduser("~"), "Code/petpet")
 SESS_PATH = os.path.join(PETPET, "session.json")
 EVENT_PATH = os.path.join(PETPET, "event.json")
+STATES_PATH = os.path.join(PETPET, "states.json")
 HOME = os.path.expanduser("~")
 GRACE = 6.0       # seconds a finished session lingers on "Готово" before sleeping
 READY_GRACE = 4.0 # seconds a just-started session greets before it stops winning
@@ -128,9 +129,40 @@ def rec(sid):
                               "phase": "idle", "state": "idle", "card": None})
 
 
-def render(r, phase, state, card):
+def load_overrides():
+    # states.json (written by the state-editor) overrides the animation/status/
+    # color/code of any trigger key. Missing or malformed → built-in defaults.
+    try:
+        with open(STATES_PATH) as f:
+            d = json.load(f)
+        return d if isinstance(d, dict) else {}
+    except Exception:
+        return {}
+
+
+OVERRIDES = load_overrides()
+
+
+def tool_key(tool):
+    # Normalize a tool name to the override key the editor exposes.
+    if tool in ("Grep", "Glob", "NotebookRead"):           return "Grep"
+    if tool in ("WebFetch", "WebSearch"):                  return "Web"
+    if tool == "MultiEdit":                                return "Edit"
+    if tool in ("Read", "Bash", "Edit", "Write", "Task"):  return tool
+    return "mcp"
+
+
+def render(r, key, phase, state, card):
     # Record this session's latest render. phase drives who wins the bubble;
     # state is the animation; card is the bubble (or None for nothing to show).
+    # states.json may override this trigger's animation/status/color/code.
+    o = OVERRIDES.get(key) or {}
+    if o.get("state"):   state = o["state"]
+    if o.get("status"):  card = {**card, "status": o["status"]}
+    if o.get("color"):   card = {**card, "color":  o["color"]}
+    if "code" in o:
+        card = ({**card, "detail_code": True} if o["code"]
+                else {k: v for k, v in card.items() if k != "detail_code"})
     r["phase"] = phase
     r["state"] = state
     r["card"] = card
@@ -142,7 +174,7 @@ def render(r, phase, state, card):
 
 if EVENT == "session-start":
     r = rec(SID)
-    render(r, "ready", "waving",
+    render(r, "session-start", "ready", "waving",
            {"title": "", "status": "Новая сессия", "color": "green",
             "detail": r["path"], "ttl": 4})
 
@@ -156,7 +188,7 @@ elif EVENT == "user-prompt":
     prompt = payload.get("prompt", "")
     if prompt and not r.get("topic"):
         r["topic"] = clip(prompt, 40)       # fallback topic until a plan exists
-    render(r, "working", "jumping",
+    render(r, "user-prompt", "working", "jumping",
            {"title": r.get("topic", ""), "status": "Думаю…",
             "color": "purple", "detail": "", "ttl": 0})
 
@@ -167,7 +199,7 @@ elif EVENT == "pre":
         topic = active_todo(payload.get("tool_input"))
         if topic:
             r["topic"] = topic              # the plan beats the first-prompt fallback
-        render(r, "working", "running",
+        render(r, "TodoWrite", "working", "running",
                {"title": r.get("topic", ""), "status": "Планирую",
                 "color": "blue", "detail": "", "ttl": 0})
     elif tool in ("AskUserQuestion", "ExitPlanMode"):
@@ -179,19 +211,20 @@ elif EVENT == "pre":
             detail = clip(q.get("question") or q.get("header") or "Нужен выбор", 60)
         else:
             detail = "Подтверди план"
-        render(r, "waiting", "waiting",
+        render(r, tool, "waiting", "waiting",
                {"title": r.get("topic", ""), "status": "Жду ответа",
                 "color": "amber", "detail": detail, "ttl": 0})
     else:
         what = describe(tool, payload.get("tool_input"))
         if tool in ("Read", "Grep", "Glob", "NotebookRead", "WebFetch", "WebSearch"):
-            render(r, "working", "review",
-                   {"title": r.get("topic", ""), "status": "Читаю",
+            render(r, tool_key(tool), "working", "review",
+                   {"title": r.get("topic", ""),
+                    "status": "Читаю" if tool in ("Read", "NotebookRead") else "Ищу",
                     "color": "blue", "detail": what, "ttl": 0})
         else:
             verb = {"Bash": "Выполняю", "Edit": "Редактирую", "MultiEdit": "Редактирую",
                     "Write": "Пишу", "Task": "Запускаю"}.get(tool, "Работаю")
-            render(r, "working", "running",
+            render(r, tool_key(tool), "working", "running",
                    {"title": r.get("topic", ""), "status": verb,
                     "color": "blue", "detail": what,
                     "detail_code": tool == "Bash", "ttl": 0})
@@ -200,7 +233,7 @@ elif EVENT == "post":
     r = rec(SID)
     resp = payload.get("tool_response")
     if isinstance(resp, dict) and (resp.get("error") or resp.get("is_error")):
-        render(r, "working", "failed",
+        render(r, "post-error", "working", "failed",
                {"title": r.get("topic", ""), "status": "Ошибка",
                 "color": "red", "detail": "Сбой инструмента", "ttl": 0})
     # success: leave the session's render exactly as the matching `pre` set it —
@@ -208,7 +241,7 @@ elif EVENT == "post":
 
 elif EVENT == "notify":
     r = rec(SID)
-    render(r, "waiting", "waiting",
+    render(r, "notify", "waiting", "waiting",
            {"title": r.get("topic", ""), "status": "Жду ответа", "color": "amber",
             "detail": clip(payload.get("message") or "Нужен ответ", 60), "ttl": 0})
 
@@ -216,7 +249,7 @@ elif EVENT == "stop":
     # turn finished → linger on "Готово". The pet only actually sleeps if this
     # session wins the render below, and then only after GRACE (via sleep_after).
     r = rec(SID)
-    render(r, "finished", "waving",
+    render(r, "stop", "finished", "waving",
            {"title": "", "status": "Готово", "color": "green", "detail": "", "ttl": 0})
 
 save_sessions(sess)
@@ -235,7 +268,8 @@ def tier(r):
 
 
 def build_event():
-    idle = {"state": "idle", "sleep": True, "title": "", "status": "",
+    idle_state = (OVERRIDES.get("idle") or {}).get("state") or "idle"
+    idle = {"state": idle_state, "sleep": True, "title": "", "status": "",
             "color": "gray", "detail": "", "ttl": 0}
     if not S:
         return idle

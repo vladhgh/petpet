@@ -6,6 +6,12 @@
       "runtimeExecutable": "python3",
       "runtimeArgs": ["-m", "http.server", "7891"],
       "port": 7891
+    },
+    {
+      "name": "petpet-editor",
+      "runtimeExecutable": "python3",
+      "runtimeArgs": ["petpet-editor.py", "7892"],
+      "port": 7892
     }
   ]
 }

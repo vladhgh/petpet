@@ -1,0 +1,578 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>PetPet · Редактор состояний</title>
+<style>
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+:root{
+  --bg:#111113; --bg2:#18181b; --bg3:#212126; --bg4:#27272d;
+  --border:#2b2b32; --border2:#38383f;
+  --text:#e4e4ec; --muted:#8a8a98; --faint:#55555f;
+  --accent:#5b9bd5; --accent-bg:#16202e;
+  --r:10px;
+  --font:"SF Mono","Menlo","Monaco",monospace;
+  /* faithful PetPet bubble palette */
+  --parchment:#f6edce; --ink:#3f2e1c; --ink62:rgba(63,46,28,.62);
+  --ink28:rgba(63,46,28,.28); --ink18:rgba(63,46,28,.18); --codebg:#d6cca8;
+}
+html,body{ height:100%; background:var(--bg); color:var(--text); font:13px/1.5 var(--font); -webkit-font-smoothing:antialiased; }
+#app{ display:flex; flex-direction:column; min-height:100%; }
+
+/* ── header ─────────────────────────────────────────────── */
+header{ flex-shrink:0; background:var(--bg2); border-bottom:1px solid var(--border); position:sticky; top:0; z-index:5; }
+.toolbar{ display:flex; flex-wrap:wrap; align-items:center; gap:12px; padding:11px 20px; }
+.brand{ display:flex; flex-direction:column; gap:1px; margin-right:6px; }
+.brand b{ font-size:13px; font-weight:600; letter-spacing:.01em; }
+.brand span{ font-size:10px; color:var(--faint); }
+.sep{ width:1px; height:22px; background:var(--border2); flex-shrink:0; }
+label.fld{ color:var(--muted); font-size:11px; display:flex; align-items:center; gap:6px; }
+select,input[type=text]{ background:var(--bg3); border:1px solid var(--border2); border-radius:6px; color:var(--text); padding:5px 8px; font:inherit; font-size:11px; }
+select:focus,input:focus{ outline:none; border-color:var(--accent); }
+select{ min-width:120px; cursor:pointer; }
+input[type=range]{ width:96px; cursor:pointer; accent-color:var(--accent); }
+#speedVal{ color:var(--faint); font-size:11px; min-width:30px; }
+.btn{ background:var(--bg3); border:1px solid var(--border2); border-radius:6px; color:var(--muted); font:inherit; font-size:11px; padding:6px 12px; cursor:pointer; white-space:nowrap; transition:.13s; }
+.btn:hover{ color:var(--text); border-color:var(--accent); background:var(--accent-bg); }
+.btn:disabled{ opacity:.4; cursor:not-allowed; }
+.btn.primary{ color:var(--accent); border-color:#2f5573; background:var(--accent-bg); }
+.btn.primary:hover:not(:disabled){ color:#fff; border-color:var(--accent); }
+.file-btn{ border-style:dashed; }
+.spacer{ flex:1; }
+.pill{ font-size:10.5px; padding:5px 10px; border-radius:6px; border:1px solid var(--border2); color:var(--muted); display:flex; align-items:center; gap:6px; white-space:nowrap; }
+.pill .dot{ width:7px; height:7px; border-radius:50%; background:var(--faint); }
+.pill.on{ color:#7fd49a; border-color:#2c5238; background:#13211a; }
+.pill.on .dot{ background:#4ec77e; }
+
+/* ── load hint banner ───────────────────────────────────── */
+#hint{ display:none; padding:9px 20px; background:#2a2113; border-bottom:1px solid #4a3a15; color:#e8c987; font-size:11px; }
+#hint code{ background:#1c160a; padding:1px 6px; border-radius:4px; color:#ffd98a; }
+
+/* ── layout ─────────────────────────────────────────────── */
+main{ flex:1; display:grid; grid-template-columns:300px 1fr; gap:0; min-height:0; }
+@media (max-width:860px){ main{ grid-template-columns:1fr; } }
+
+/* ── state list ─────────────────────────────────────────── */
+.list{ border-right:1px solid var(--border); overflow-y:auto; padding:14px 12px 40px; }
+.grp{ font-size:9.5px; letter-spacing:.1em; text-transform:uppercase; color:var(--faint); margin:14px 6px 8px; }
+.grp:first-child{ margin-top:2px; }
+.state-item{ width:100%; display:flex; align-items:center; gap:11px; background:transparent; border:1px solid transparent; border-radius:9px; padding:8px 10px; cursor:pointer; text-align:left; color:var(--text); transition:.12s; }
+.state-item:hover{ background:var(--bg2); border-color:var(--border); }
+.state-item.sel{ background:var(--accent-bg); border-color:var(--accent); }
+.si-cv{ width:38px; height:38px; flex-shrink:0; object-fit:contain; image-rendering:auto; }
+.si-cv canvas{ display:block; }
+.si-txt{ flex:1; min-width:0; display:flex; flex-direction:column; gap:1px; }
+.si-name{ font-size:12px; font-weight:600; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+.si-status{ font-size:10.5px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+.si-dot{ width:8px; height:8px; border-radius:50%; flex-shrink:0; }
+
+/* ── detail / editor ────────────────────────────────────── */
+.detail{ overflow-y:auto; padding:24px 26px 60px; }
+.stage{ display:flex; flex-direction:column; align-items:center; justify-content:flex-end; gap:20px; padding:30px 24px 34px; background:var(--bg2); border:1px solid var(--border); border-radius:14px; min-height:300px; position:relative; }
+.stage-grid{ position:absolute; inset:0; border-radius:14px; background:
+   radial-gradient(circle at 50% 42%, rgba(91,155,213,.07), transparent 60%); pointer-events:none; }
+#bigSprite{ display:block; position:relative; image-rendering:auto; filter:drop-shadow(0 10px 18px rgba(0,0,0,.45)); }
+
+/* faithful parchment bubble */
+.bubble-wrap{ position:relative; }
+#bubble{ position:relative; background:var(--parchment); color:var(--ink);
+   border:1px solid var(--ink28); border-radius:6px; padding:7px 11px;
+   font-family:"Monaco","SF Mono",monospace; width:max-content; max-width:240px;
+   box-shadow:0 6px 16px rgba(0,0,0,.4); }
+#bubble::after{ content:''; position:absolute; left:26px; bottom:-8px; width:13px; height:13px;
+   background:var(--parchment); border-right:1px solid var(--ink28); border-bottom:1px solid var(--ink28);
+   transform:rotate(45deg); }
+.b-cap{ font-size:10px; color:var(--ink62); margin-bottom:4px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; max-width:230px; }
+.b-row{ display:flex; align-items:flex-start; gap:10px; }
+.b-primary{ flex:1; min-width:0; }
+.b-status{ font-size:13px; font-weight:700; }
+.b-det{ font-size:11px; color:var(--ink62); }
+.b-code{ margin-top:5px; background:var(--codebg); border-radius:4px; padding:4px 7px; font-size:11px; white-space:pre-wrap; word-break:break-word; line-height:1.45; }
+.b-icon{ flex-shrink:0; padding-top:1px; }
+.bicon{ width:15px; height:15px; display:block; }
+.bspin{ width:13px; height:13px; border:2px solid var(--ink18); border-top-color:currentColor; border-radius:50%; display:block; animation:bspin .8s linear infinite; }
+@keyframes bspin{ to{ transform:rotate(360deg); } }
+.b-hidden-note{ font-size:10px; color:var(--ink62); font-style:italic; }
+
+/* editor form */
+.ed-head{ display:flex; align-items:baseline; gap:12px; margin:24px 2px 4px; flex-wrap:wrap; }
+.ed-head h2{ font-size:18px; font-weight:700; letter-spacing:-.01em; }
+.ed-trigger{ font-size:11px; color:var(--muted); }
+.ed-desc{ font-size:11.5px; color:var(--faint); margin:0 2px 18px; line-height:1.6; }
+.form{ display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:14px 20px; }
+@media (max-width:560px){ .form{ grid-template-columns:1fr; } }
+.row{ display:flex; flex-direction:column; gap:6px; }
+.row.full{ grid-column:1/-1; }
+.row > label{ font-size:10px; letter-spacing:.06em; text-transform:uppercase; color:var(--muted); }
+.row input[type=text], .row select{ width:100%; padding:8px 10px; font-size:12px; }
+.checks{ grid-column:1/-1; display:flex; gap:22px; flex-wrap:wrap; margin-top:2px; }
+.chk{ display:flex; align-items:center; gap:8px; font-size:12px; color:var(--text); cursor:pointer; user-select:none; }
+.chk input{ width:15px; height:15px; accent-color:var(--accent); cursor:pointer; }
+.swatches{ display:flex; gap:7px; }
+.sw{ width:24px; height:24px; border-radius:6px; border:2px solid transparent; cursor:pointer; }
+.sw.on{ border-color:var(--text); }
+
+footer{ color:var(--faint); font-size:10.5px; padding:18px 26px 30px; border-top:1px solid var(--border); grid-column:1/-1; }
+#toast{ position:fixed; bottom:22px; left:50%; transform:translateX(-50%) translateY(20px); background:var(--bg4); border:1px solid var(--border2); color:var(--text); font-size:12px; padding:9px 16px; border-radius:9px; opacity:0; pointer-events:none; transition:.22s; z-index:20; }
+#toast.show{ opacity:1; transform:translateX(-50%) translateY(0); }
+</style>
+</head>
+<body>
+<div id="app">
+
+<header>
+  <div class="toolbar">
+    <div class="brand"><b>PetPet · Редактор состояний</b><span>анимация + текст пузыря · живой preview</span></div>
+    <div class="sep"></div>
+    <label class="fld">Пет
+      <select id="petSelect"></select>
+    </label>
+    <label class="fld">Скорость
+      <input type="range" id="speed" min="20" max="300" value="100">
+    </label>
+    <span id="speedVal">1.0×</span>
+    <div class="sep"></div>
+    <label class="btn file-btn" for="fileInput">Открыть .webp</label>
+    <input type="file" id="fileInput" accept="image/*" style="display:none">
+    <div class="spacer"></div>
+    <span class="pill" id="syncPill"><span class="dot"></span>…</span>
+    <button class="btn primary" id="liveBtn" title="Записать текущее состояние в event.json — живой пет покажет его сразу">▶ На петомце</button>
+    <button class="btn" id="resetBtn">Сбросить</button>
+    <button class="btn" id="exportBtn">Export</button>
+  </div>
+  <div id="hint"></div>
+</header>
+
+<main>
+  <nav class="list" id="list"></nav>
+
+  <section class="detail">
+    <div class="stage">
+      <div class="stage-grid"></div>
+      <div class="bubble-wrap"><div id="bubble"></div></div>
+      <canvas id="bigSprite"></canvas>
+    </div>
+
+    <div class="ed-head">
+      <h2 id="edName">—</h2>
+      <span class="ed-trigger" id="edTrigger"></span>
+    </div>
+    <p class="ed-desc" id="edDesc"></p>
+
+    <div class="form">
+      <div class="row">
+        <label for="fAnim">Анимация</label>
+        <select id="fAnim"></select>
+      </div>
+      <div class="row">
+        <label>Цвет / иконка</label>
+        <div class="swatches" id="fColor"></div>
+      </div>
+      <div class="row full">
+        <label for="fStatus">Статус (главная строка)</label>
+        <input type="text" id="fStatus" placeholder="например: Выполняю">
+      </div>
+      <div class="row full">
+        <label for="fDetail">Деталь (превью значения)</label>
+        <input type="text" id="fDetail" placeholder="например: git log --oneline">
+      </div>
+      <div class="row full">
+        <label for="fCaption">Тема / подпись (показывается в развёрнутом виде)</label>
+        <input type="text" id="fCaption" placeholder="первое сообщение сессии">
+      </div>
+      <div class="checks">
+        <label class="chk"><input type="checkbox" id="fCode"> деталь как код (моноблок)</label>
+        <label class="chk"><input type="checkbox" id="fExpanded"> развёрнут (показать тему)</label>
+      </div>
+    </div>
+
+    <footer>
+      Запущено через <code>./petpetctl.sh editor</code> — правки сразу пишутся в <code>states.json</code>, и хук
+      подхватывает их на следующем событии (анимация · статус · цвет/иконка для каждого состояния).
+      Кнопка <b>▶ На петомце</b> пишет <code>event.json</code> — живой пет показывает состояние сейчас же.
+      Деталь (имя файла / команда) остаётся динамической — её подставляет хук в реальном времени.
+      Открыто как <code>file://</code> → офлайн-режим: правки только в браузере (localStorage).
+    </footer>
+  </section>
+</main>
+</div>
+<div id="toast"></div>
+
+<script>
+/* ── sprite sheet engine (8×9), adapted from sprite-viewer.html ───────────── */
+function uniform(n, dur, last){ return Array.from({length:n}, (_,i)=>({c:i, d:i===n-1?last:dur})); }
+const ANIMS = {
+  "idle":          {row:0, frames:[{c:0,d:280},{c:1,d:110},{c:2,d:110},{c:3,d:140},{c:4,d:140},{c:5,d:320}]},
+  "running-right": {row:1, frames:uniform(8,120,220)},
+  "running-left":  {row:2, frames:uniform(8,120,220)},
+  "waving":        {row:3, frames:uniform(4,140,280)},
+  "jumping":       {row:4, frames:uniform(5,140,280)},
+  "failed":        {row:5, frames:uniform(8,140,240)},
+  "waiting":       {row:6, frames:uniform(6,150,260)},
+  "running":       {row:7, frames:uniform(6,120,220)},
+  "review":        {row:8, frames:uniform(6,150,280)},
+};
+const ANIM_NAMES = Object.keys(ANIMS);
+const COLS = 8, ROWS = 9;
+let img = null, frameW = 0, frameH = 0, speedMul = 1;
+const timers = new Map();
+
+function stopAnim(id){ if(timers.has(id)){ clearTimeout(timers.get(id)); timers.delete(id); } }
+function stopAll(){ timers.forEach(clearTimeout); timers.clear(); }
+function startAnim(id, anim, canvas){
+  stopAnim(id);
+  if(!img) return;
+  if(canvas.width !== frameW){ canvas.width = frameW; canvas.height = frameH; }
+  const ctx = canvas.getContext('2d');
+  let i = 0;
+  const tick = () => {
+    if(!img) return;
+    const f = anim.frames[i++ % anim.frames.length];
+    ctx.clearRect(0,0,frameW,frameH);
+    ctx.imageSmoothingEnabled = true;
+    ctx.drawImage(img, f.c*frameW, anim.row*frameH, frameW, frameH, 0,0, frameW, frameH);
+    timers.set(id, setTimeout(tick, f.d / speedMul));
+  };
+  tick();
+}
+
+/* ── state table — defaults seeded from petpet-hook.py ────────────────────── */
+const ACCENT = {green:'#28cd41', amber:'#ff9500', red:'#ff3b30', purple:'#af52de', gray:'#8e8e93', blue:'#1f8bff'};
+const ICONKIND = {green:'check', red:'cross', amber:'question', gray:'dot', blue:'spinner', purple:'spinner'};
+const COLOR_ORDER = ['blue','purple','green','amber','red','gray'];
+
+const DEFAULTS = [
+  {key:'session-start', grp:'Жизненный цикл', label:'session-start', trigger:'хук · фаза ready (2)',
+   desc:'Новая сессия Claude Code. Пет машет и коротко показывает путь проекта (ttl 4с).',
+   anim:'waving', status:'Новая сессия', detail:'~/Code/petpet', color:'green', code:false, caption:'', expanded:false},
+  {key:'user-prompt', grp:'Жизненный цикл', label:'user-prompt', trigger:'хук · фаза working (3)',
+   desc:'Пользователь отправил запрос — агент думает над ответом. Тема берётся из первого сообщения.',
+   anim:'jumping', status:'Думаю…', detail:'', color:'purple', code:false, caption:'Сгенерируй дашборд', expanded:false},
+  {key:'stop', grp:'Жизненный цикл', label:'stop', trigger:'хук · фаза finished (1)',
+   desc:'Ход завершён — пузырь застывает на «Готово», затем пет засыпает через GRACE (6с).',
+   anim:'waving', status:'Готово', detail:'', color:'green', code:false, caption:'', expanded:false},
+  {key:'idle', grp:'Жизненный цикл', label:'idle / сон', trigger:'все сессии idle · фаза idle (0)',
+   desc:'Никто не работает — пет спит, пузырь скрыт. Показан здесь только для настройки анимации покоя.',
+   anim:'idle', status:'', detail:'', color:'gray', code:false, caption:'', expanded:false},
+
+  {key:'TodoWrite', grp:'Инструменты (pre)', label:'TodoWrite', trigger:'pre-tool · фаза working (3)',
+   desc:'Агент строит план задач. Активный пункт плана становится темой пузыря.',
+   anim:'running', status:'Планирую', detail:'', color:'blue', code:false, caption:'PetPet: статус-бар', expanded:false},
+  {key:'Read', grp:'Инструменты (pre)', label:'Read', trigger:'pre-tool · фаза working (3)',
+   desc:'Чтение файла. Деталь — имя файла. Анимация «review» (читает).',
+   anim:'review', status:'Читаю', detail:'PetPet.swift', color:'blue', code:false, caption:'PetPet: статус-бар', expanded:false},
+  {key:'Grep', grp:'Инструменты (pre)', label:'Grep / Glob', trigger:'pre-tool · фаза working (3)',
+   desc:'Поиск по коду. Деталь — паттерн поиска.',
+   anim:'review', status:'Ищу', detail:'ANIMS', color:'blue', code:false, caption:'PetPet: статус-бар', expanded:false},
+  {key:'Web', grp:'Инструменты (pre)', label:'WebFetch / WebSearch', trigger:'pre-tool · фаза working (3)',
+   desc:'Запрос в сеть. Деталь фиксированная — «веб».',
+   anim:'review', status:'Читаю', detail:'веб', color:'blue', code:false, caption:'PetPet: статус-бар', expanded:false},
+  {key:'Bash', grp:'Инструменты (pre)', label:'Bash', trigger:'pre-tool · фаза working (3)',
+   desc:'Запуск shell-команды. Деталь — сама команда в моноблоке (detail_code).',
+   anim:'running', status:'Выполняю', detail:'git log --oneline -15', color:'blue', code:true, caption:'PetPet: статус-бар', expanded:false},
+  {key:'Edit', grp:'Инструменты (pre)', label:'Edit / MultiEdit', trigger:'pre-tool · фаза working (3)',
+   desc:'Правка файла. Деталь — базовое имя файла.',
+   anim:'running', status:'Редактирую', detail:'PetPet.swift', color:'blue', code:false, caption:'PetPet: статус-бар', expanded:false},
+  {key:'Write', grp:'Инструменты (pre)', label:'Write', trigger:'pre-tool · фаза working (3)',
+   desc:'Запись нового файла. Деталь — имя файла.',
+   anim:'running', status:'Пишу', detail:'event.json', color:'blue', code:false, caption:'PetPet: статус-бар', expanded:false},
+  {key:'Task', grp:'Инструменты (pre)', label:'Task', trigger:'pre-tool · фаза working (3)',
+   desc:'Запуск субагента. Деталь фиксированная — «субагент».',
+   anim:'running', status:'Запускаю', detail:'субагент', color:'blue', code:false, caption:'PetPet: статус-бар', expanded:false},
+  {key:'mcp', grp:'Инструменты (pre)', label:'mcp__* (прочий tool)', trigger:'pre-tool · фаза working (3)',
+   desc:'Любой неизвестный/ MCP-инструмент. Глагол по умолчанию — «Работаю».',
+   anim:'running', status:'Работаю', detail:'server tool', color:'blue', code:false, caption:'PetPet: статус-бар', expanded:false},
+
+  {key:'AskUserQuestion', grp:'Блокировка / прочее', label:'AskUserQuestion', trigger:'pre-tool · фаза waiting (4)',
+   desc:'Агент задал вопрос и ждёт выбор — это не «работа», а блокировка. Деталь — текст вопроса.',
+   anim:'waiting', status:'Жду ответа', detail:'Какой вариант?', color:'amber', code:false, caption:'PetPet: статус-бар', expanded:false},
+  {key:'ExitPlanMode', grp:'Блокировка / прочее', label:'ExitPlanMode', trigger:'pre-tool · фаза waiting (4)',
+   desc:'Агент просит подтвердить план. Деталь фиксированная — «Подтверди план».',
+   anim:'waiting', status:'Жду ответа', detail:'Подтверди план', color:'amber', code:false, caption:'PetPet: статус-бар', expanded:false},
+  {key:'notify', grp:'Блокировка / прочее', label:'notify', trigger:'хук · фаза waiting (4)',
+   desc:'Системное уведомление Claude Code (нужен ответ). Деталь — текст уведомления.',
+   anim:'waiting', status:'Жду ответа', detail:'Нужен ответ', color:'amber', code:false, caption:'PetPet: статус-бар', expanded:false},
+  {key:'post-error', grp:'Блокировка / прочее', label:'post · ошибка', trigger:'post-tool · фаза working (3)',
+   desc:'Инструмент вернул ошибку. Пет спотыкается (failed), пузырь красный.',
+   anim:'failed', status:'Ошибка', detail:'Сбой инструмента', color:'red', code:false, caption:'PetPet: статус-бар', expanded:false},
+];
+
+const PETS = ['minatonamikaze','buddhist','dario','enzo','firefly-3','itachi','mini-sama','nana','obanai','patchpack','roxy-2','rubick','tuxterm'];
+const LS_STATES = 'petpet-state-editor:v1';
+const LS_PET = 'petpet-state-editor:pet';
+
+let STATES = loadStates();
+let current = STATES[Object.keys(STATES)[0]] ? 'Bash' : DEFAULTS[0].key;
+if(!STATES[current]) current = DEFAULTS[0].key;
+
+function freshStates(){
+  const o = {};
+  for(const d of DEFAULTS) o[d.key] = JSON.parse(JSON.stringify(d));
+  return o;
+}
+function loadStates(){
+  const base = freshStates();
+  try{
+    const saved = JSON.parse(localStorage.getItem(LS_STATES) || '{}');
+    for(const k in base) if(saved[k]) Object.assign(base[k], saved[k]);
+  }catch(_){}
+  return base;
+}
+function saveStates(){ try{ localStorage.setItem(LS_STATES, JSON.stringify(STATES)); }catch(_){} }
+
+/* ── server sync: editor ⇄ states.json (read by the hook) ─────────────────── */
+const DEF_BY_KEY = {}; for(const d of DEFAULTS) DEF_BY_KEY[d.key] = d;
+const OVR_FIELDS = [['anim','state'],['status','status'],['color','color'],['code','code']];
+let serverMode = false, saveTimer = null;
+
+/* write only what differs from the built-in defaults → states.json stays a
+   minimal, readable diff; untouched keys keep the hook's defaults. */
+function buildOverrides(){
+  const out = {};
+  for(const k in STATES){
+    const s = STATES[k], d = DEF_BY_KEY[k]; if(!d) continue;
+    const o = {};
+    for(const [sf, of] of OVR_FIELDS) if(s[sf] !== d[sf]) o[of] = s[sf];
+    if(Object.keys(o).length) out[k] = o;
+  }
+  return out;
+}
+function applyOverrides(saved){
+  if(!saved || typeof saved !== 'object') return;
+  for(const k in saved){
+    if(!STATES[k]) continue; const o = saved[k];
+    if(o.state  !== undefined) STATES[k].anim   = o.state;
+    if(o.status !== undefined) STATES[k].status = o.status;
+    if(o.color  !== undefined) STATES[k].color  = o.color;
+    if(o.code   !== undefined) STATES[k].code   = o.code;
+  }
+}
+function setSync(on){
+  serverMode = on;
+  const pill = document.getElementById('syncPill');
+  pill.classList.toggle('on', on);
+  pill.innerHTML = `<span class="dot"></span>${on ? 'states.json · live' : 'офлайн (localStorage)'}`;
+  document.getElementById('liveBtn').disabled = !on;
+}
+function saveServer(){
+  if(!serverMode) return;
+  clearTimeout(saveTimer);
+  saveTimer = setTimeout(()=>{
+    fetch('/api/states', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(buildOverrides())})
+      .then(r=>{ if(!r.ok) throw 0; })
+      .catch(()=> setSync(false));
+  }, 350);
+}
+function eventPayload(s){
+  return { state:s.anim, sleep:false, title:s.expanded?s.caption:'', status:s.status,
+           color:s.color, detail:s.detail, detail_code:s.code, ttl:0 };
+}
+
+/* ── bubble preview (faithful parchment) ──────────────────────────────────── */
+const esc = s => String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+function iconHTML(color){
+  const kind = ICONKIND[color] || 'spinner';
+  const a = ACCENT[color] || ACCENT.blue;
+  if(kind==='spinner') return `<span class="bspin" style="color:${a}"></span>`;
+  const st = `style="color:${a}"`;
+  if(kind==='dot')   return `<svg class="bicon" ${st} viewBox="0 0 16 16"><circle cx="8" cy="8" r="3.2" fill="currentColor"/></svg>`;
+  if(kind==='check') return `<svg class="bicon" ${st} viewBox="0 0 16 16"><path d="M3 8.6l3.2 3.2L13 4.4" fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round"/></svg>`;
+  if(kind==='cross') return `<svg class="bicon" ${st} viewBox="0 0 16 16"><path d="M4 4l8 8M12 4l-8 8" fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round"/></svg>`;
+  if(kind==='question') return `<svg class="bicon" ${st} viewBox="0 0 16 16"><path d="M5.4 5.6a2.6 2.6 0 1 1 3.4 2.5c-.7.3-1 .8-1 1.6v.3" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/><circle cx="7.8" cy="12.6" r="1.05" fill="currentColor"/></svg>`;
+  return '';
+}
+function renderBubble(s){
+  const el = document.getElementById('bubble');
+  if(s.color==='gray' && !s.status){
+    el.innerHTML = `<span class="b-hidden-note">пузырь скрыт — пет спит</span>`;
+    return;
+  }
+  const cap = (s.expanded && s.caption) ? `<div class="b-cap">«${esc(s.caption)}»</div>` : '';
+  const inlineDetail = (s.detail && !s.code) ? `<span class="b-det">  ${esc(s.detail)}</span>` : '';
+  const codeBox = (s.detail && s.code) ? `<div class="b-code">${esc(s.detail)}</div>` : '';
+  const status = s.status ? esc(s.status) : '<span style="opacity:.45">—</span>';
+  el.innerHTML = cap +
+    `<div class="b-row"><div class="b-primary"><span class="b-status">${status}</span>${inlineDetail}</div>` +
+    `<div class="b-icon">${iconHTML(s.color)}</div></div>` + codeBox;
+}
+
+/* ── left list ────────────────────────────────────────────────────────────── */
+function buildList(){
+  const list = document.getElementById('list');
+  list.innerHTML = '';
+  let lastGrp = null;
+  for(const key in STATES){
+    const s = STATES[key];
+    if(s.grp !== lastGrp){ lastGrp = s.grp;
+      const h = document.createElement('div'); h.className='grp'; h.textContent=s.grp; list.appendChild(h);
+    }
+    const item = document.createElement('button');
+    item.className = 'state-item' + (key===current?' sel':'');
+    item.dataset.key = key;
+    const cvWrap = document.createElement('span'); cvWrap.className='si-cv';
+    const cv = document.createElement('canvas'); cv.style.width='38px'; cv.style.height='38px';
+    cvWrap.appendChild(cv);
+    const txt = document.createElement('div'); txt.className='si-txt';
+    txt.innerHTML = `<span class="si-name">${esc(s.label)}</span>`+
+      `<span class="si-status" style="color:${ACCENT[s.color]}">${esc(s.status||'спит')}</span>`;
+    const dot = document.createElement('span'); dot.className='si-dot'; dot.style.background=ACCENT[s.color];
+    item.append(cvWrap, txt, dot);
+    item.addEventListener('click', ()=> select(key));
+    list.appendChild(item);
+    startAnim('thumb:'+key, ANIMS[s.anim], cv);
+  }
+}
+function refreshListItem(key){
+  const s = STATES[key];
+  const item = document.querySelector(`.state-item[data-key="${key}"]`);
+  if(!item) return;
+  item.querySelector('.si-status').textContent = s.status || 'спит';
+  item.querySelector('.si-status').style.color = ACCENT[s.color];
+  item.querySelector('.si-dot').style.background = ACCENT[s.color];
+  startAnim('thumb:'+key, ANIMS[s.anim], item.querySelector('canvas'));
+}
+
+/* ── editor wiring ────────────────────────────────────────────────────────── */
+function buildColorSwatches(){
+  const wrap = document.getElementById('fColor'); wrap.innerHTML='';
+  for(const c of COLOR_ORDER){
+    const b = document.createElement('button');
+    b.className='sw'; b.dataset.color=c; b.style.background=ACCENT[c];
+    b.title = c + ' → ' + ICONKIND[c];
+    b.addEventListener('click', ()=>{ STATES[current].color=c; commit(); });
+    wrap.appendChild(b);
+  }
+}
+function fillAnimSelect(){
+  const sel = document.getElementById('fAnim'); sel.innerHTML='';
+  for(const n of ANIM_NAMES){
+    const o = document.createElement('option'); o.value=n;
+    o.textContent = `${n}  ·  ряд ${ANIMS[n].row} · ${ANIMS[n].frames.length} кадр.`;
+    sel.appendChild(o);
+  }
+}
+function select(key){
+  current = key;
+  document.querySelectorAll('.state-item').forEach(i=> i.classList.toggle('sel', i.dataset.key===key));
+  const s = STATES[key];
+  document.getElementById('edName').textContent = s.label;
+  document.getElementById('edTrigger').textContent = s.trigger;
+  document.getElementById('edDesc').textContent = s.desc;
+  document.getElementById('fAnim').value = s.anim;
+  document.getElementById('fStatus').value = s.status;
+  document.getElementById('fDetail').value = s.detail;
+  document.getElementById('fCaption').value = s.caption;
+  document.getElementById('fCode').checked = s.code;
+  document.getElementById('fExpanded').checked = s.expanded;
+  document.querySelectorAll('.sw').forEach(b=> b.classList.toggle('on', b.dataset.color===s.color));
+  renderBubble(s);
+  startAnim('big', ANIMS[s.anim], document.getElementById('bigSprite'));
+}
+/* commit current edits → preview + list + storage */
+function commit(){
+  const s = STATES[current];
+  document.querySelectorAll('.sw').forEach(b=> b.classList.toggle('on', b.dataset.color===s.color));
+  renderBubble(s);
+  startAnim('big', ANIMS[s.anim], document.getElementById('bigSprite'));
+  refreshListItem(current);
+  saveStates();
+  saveServer();
+}
+function bindForm(){
+  document.getElementById('fAnim').addEventListener('change', e=>{ STATES[current].anim=e.target.value; commit(); });
+  document.getElementById('fStatus').addEventListener('input', e=>{ STATES[current].status=e.target.value; commit(); });
+  document.getElementById('fDetail').addEventListener('input', e=>{ STATES[current].detail=e.target.value; commit(); });
+  document.getElementById('fCaption').addEventListener('input', e=>{ STATES[current].caption=e.target.value; commit(); });
+  document.getElementById('fCode').addEventListener('change', e=>{ STATES[current].code=e.target.checked; commit(); });
+  document.getElementById('fExpanded').addEventListener('change', e=>{ STATES[current].expanded=e.target.checked; commit(); });
+}
+
+/* ── pet / sprite loading ─────────────────────────────────────────────────── */
+function showHint(html){ const h=document.getElementById('hint'); h.innerHTML=html; h.style.display='block'; }
+function hideHint(){ document.getElementById('hint').style.display='none'; }
+function onImgLoaded(){
+  frameW = Math.floor(img.width / COLS);
+  frameH = Math.floor(img.height / ROWS);
+  hideHint();
+  const big = document.getElementById('bigSprite');
+  big.style.height = '170px'; big.style.width = (170*frameW/frameH)+'px';
+  buildList();
+  select(current);
+}
+function tryLoad(urls){
+  const url = urls.shift();
+  if(url===undefined){
+    showHint('Не удалось загрузить спрайт по относительному пути (частая причина — открытие через <code>file://</code>). '+
+      'Запусти <code>python3 -m http.server 8000</code> в папке репозитория и открой '+
+      '<code>http://localhost:8000/state-editor.html</code> — или перетащи / выбери <code>spritesheet.webp</code> кнопкой «Открыть .webp».');
+    return;
+  }
+  const im = new Image();
+  im.onload = ()=>{ img=im; onImgLoaded(); };
+  im.onerror = ()=> tryLoad(urls);
+  im.src = url;
+}
+function loadPet(slug){
+  localStorage.setItem(LS_PET, slug);
+  const bust = Date.now();
+  tryLoad([`pets/${slug}/spritesheet.webp?v=${bust}`, `/pets/${slug}/spritesheet.webp?v=${bust}`, `pets/${slug}/spritesheet.png?v=${bust}`]);
+}
+function loadFile(file){
+  if(!file) return;
+  const url = URL.createObjectURL(file);
+  const im = new Image();
+  im.onload = ()=>{ img=im; onImgLoaded(); URL.revokeObjectURL(url); };
+  im.src = url;
+}
+
+/* ── toolbar ──────────────────────────────────────────────────────────────── */
+function toast(msg){ const t=document.getElementById('toast'); t.textContent=msg; t.classList.add('show'); setTimeout(()=>t.classList.remove('show'),1700); }
+
+(async function init(){
+  const petSel = document.getElementById('petSelect');
+  const savedPet = localStorage.getItem(LS_PET) || 'minatonamikaze';
+  for(const p of PETS){ const o=new Option(p,p); if(p===savedPet) o.selected=true; petSel.appendChild(o); }
+  petSel.addEventListener('change', ()=> loadPet(petSel.value));
+
+  document.getElementById('speed').addEventListener('input', e=>{
+    speedMul = +e.target.value/100; document.getElementById('speedVal').textContent = speedMul.toFixed(1)+'×';
+  });
+  document.getElementById('fileInput').addEventListener('change', e=> loadFile(e.target.files[0]));
+
+  document.getElementById('liveBtn').addEventListener('click', ()=>{
+    if(!serverMode) return;
+    fetch('/api/event', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(eventPayload(STATES[current]))})
+      .then(r=> r.ok ? toast('▶ показано на петомце') : toast('ошибка записи event.json'))
+      .catch(()=> toast('нет связи с сервером'));
+  });
+  document.getElementById('resetBtn').addEventListener('click', ()=>{
+    if(!confirm('Сбросить все состояния к дефолтам из petpet-hook.py?')) return;
+    STATES = freshStates(); saveStates();
+    if(serverMode) fetch('/api/states', {method:'POST', headers:{'Content-Type':'application/json'}, body:'{}'}).catch(()=>{});
+    buildList(); select(current); toast('Сброшено к дефолтам');
+  });
+  document.getElementById('exportBtn').addEventListener('click', ()=>{
+    const json = JSON.stringify(buildOverrides(), null, 2);
+    navigator.clipboard.writeText(json).then(()=>toast('states.json скопирован в буфер'),
+      ()=>{ const w=window.open('','_blank'); w.document.write('<pre>'+esc(json)+'</pre>'); toast('Открыт в новой вкладке'); });
+  });
+
+  buildColorSwatches();
+  fillAnimSelect();
+  bindForm();
+
+  // server overrides win for the 4 live fields; applied before the sprite loads
+  // so the list + selection build with the real values.
+  try{
+    const r = await fetch('/api/states');
+    if(r.ok){ setSync(true); applyOverrides(await r.json()); }
+    else setSync(false);
+  }catch(_){ setSync(false); }
+
+  loadPet(savedPet);
+})();
+</script>
+</body>
+</html>

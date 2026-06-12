@@ -8,6 +8,7 @@
 #   petpetctl pet <slug>       switch pet (e.g. minatonamikaze, itachi)
 #   petpetctl scale <n>        set size multiplier (e.g. 3)
 #   petpetctl state <name>     manually set animation state
+#   petpetctl editor [port]    open the state editor (writes states.json)
 #   petpetctl build            recompile from source
 #   petpetctl pets             list installed pets
 
@@ -33,22 +34,30 @@ json.dump(obj, open(path, "w"), indent=2)
 PY
 }
 
+is_running() {
+  pgrep -x "$(basename "$BIN")" >/dev/null 2>&1
+}
+
+stop_running() {
+  pkill -x "$(basename "$BIN")" 2>/dev/null
+}
+
 case "$1" in
   start)
-    if pgrep -f "$BIN" >/dev/null 2>&1; then echo "already running"; exit 0; fi
+    if is_running; then echo "already running"; exit 0; fi
     [ -x "$BIN" ] || { echo "binary missing — run: petpetctl build"; exit 1; }
-    nohup "$BIN" >/tmp/petpet.log 2>&1 &
+    nohup "$BIN" </dev/null >/tmp/petpet.log 2>&1 &
     sleep 0.5
-    pgrep -f "$BIN" >/dev/null 2>&1 && echo "started" || { echo "failed; see /tmp/petpet.log"; cat /tmp/petpet.log; }
+    is_running && echo "started" || { echo "failed; see /tmp/petpet.log"; cat /tmp/petpet.log; }
     ;;
   stop)
-    pkill -f "$BIN" 2>/dev/null && echo "stopped" || echo "not running"
+    stop_running && echo "stopped" || echo "not running"
     ;;
   restart)
     "$0" stop; sleep 0.3; "$0" start
     ;;
   status)
-    if pgrep -f "$BIN" >/dev/null 2>&1; then
+    if is_running; then
       echo "running ($(python3 -c "import json;d=json.load(open('$CONFIG'));print(f\"pet={d.get('pet')}, scale={d.get('scale')}\")" 2>/dev/null))"
     else
       echo "stopped"
@@ -71,6 +80,20 @@ case "$1" in
     printf '{"state":"%s","sleep":false}\n' "$2" > "$EVENT"
     echo "state -> $2"
     ;;
+  editor)
+    # serve state-editor.html with a writer API so edits persist to states.json
+    # (read by the hook) and can preview straight onto the running pet.
+    PORT="${2:-7892}"
+    if pgrep -f "petpet-editor.py" >/dev/null 2>&1; then
+      echo "editor already running"
+    else
+      cd "$DIR" && nohup python3 petpet-editor.py "$PORT" >/tmp/petpet-editor.log 2>&1 &
+      sleep 0.5
+    fi
+    URL="http://localhost:$PORT/state-editor.html"
+    echo "editor -> $URL"
+    open "$URL" 2>/dev/null || true
+    ;;
   build)
     # build to a temp file + mv into place so the binary gets a FRESH inode.
     # Rebuilding in place keeps the old inode, and the kernel's cached code
@@ -89,6 +112,6 @@ case "$1" in
     done | sort -u
     ;;
   *)
-    echo "usage: petpetctl {start|stop|restart|status|pet <slug>|scale <n>|state <name>|build|pets}"
+    echo "usage: petpetctl {start|stop|restart|status|pet <slug>|scale <n>|state <name>|editor|build|pets}"
     ;;
 esac

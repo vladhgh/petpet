@@ -1,10 +1,10 @@
-# CLAUDE.md
+# AGENTS.md
 
-This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+This file provides guidance to Codex (Codex.ai/code) when working with code in this repository.
 
 ## What this is
 
-PetPet is a personal macOS desktop mascot: a tiny floating sprite that animates to reflect what a Claude Code session is doing. It's a single-user hobby project — keep changes small and direct, don't add abstraction or config layers it doesn't need.
+PetPet is a personal macOS desktop mascot: a tiny floating sprite that animates to reflect what a Codex session is doing. It's a single-user hobby project — keep changes small and direct, don't add abstraction or config layers it doesn't need.
 
 ## Commands
 
@@ -33,7 +33,7 @@ Two halves that communicate **only through JSON files** in this directory — no
 
 1. **`PetPet.swift`** — the whole GUI app (AppKit, single file, ~700 lines). It polls the JSON files every 0.2s by mtime and renders. It never writes state files; it only reads them (plus `config.json`, which it owns).
 
-2. **`petpet-hook.py`** — translates Claude Code hook events into mascot state. `petpet-hook.sh` is a thin wrapper so `settings.json` can pass a stable event name (`user-prompt`, `pre`, `post`, `notify`, `stop`, `session-start`, `session-end`) while preserving stdin. The hooks are wired in `~/.claude/settings.json`, not in this repo.
+2. **`petpet-hook.py`** — translates Codex hook events into mascot state. `petpet-hook.sh` is a thin wrapper so `settings.json` can pass a stable event name (`user-prompt`, `pre`, `post`, `notify`, `stop`, `session-start`, `session-end`) while preserving stdin. The hooks are wired in `~/.Codex/settings.json`, not in this repo.
 
 ### The JSON contract (how the two halves meet)
 

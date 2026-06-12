@@ -1,0 +1,20 @@
+version = 1
+name = "petpet"
+
+[setup]
+script = ""
+
+[[actions]]
+name = "build-and-restart"
+icon = "tool"
+command = "./petpetctl.sh build 2>&1 | tail -3 && ./petpetctl.sh restart 2>&1 | tail -1 && sleep 1 && tail -3 /tmp/petpet.log"
+
+[[actions]]
+name = "status-and-log"
+icon = "terminal"
+command = "./petpetctl.sh status && tail -8 /tmp/petpet.log"
+
+[[actions]]
+name = "state-editor"
+icon = "settings"
+command = "./petpetctl.sh editor"

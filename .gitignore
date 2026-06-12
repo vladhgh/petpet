@@ -7,6 +7,8 @@ petpet.dSYM/
 config.json
 event.json
 session.json
+states.json
+*.tmp
 
 # logs
 *.log
