@@ -72,9 +72,9 @@ def describe(tool, ti):
     if t == "NotebookEdit": return base(ti.get("notebook_path", "notebook"))
     if t == "Grep":         return clip(ti.get("pattern", ""))
     if t == "Glob":         return clip(ti.get("pattern", "files"))
-    if t in ("WebFetch", "WebSearch"): return "the web"
-    if t == "Task":         return "a subagent"
-    if t == "TodoWrite":    return "the plan"
+    if t in ("WebFetch", "WebSearch"): return "веб"
+    if t == "Task":         return "субагент"
+    if t == "TodoWrite":    return "план"
     if t.startswith("mcp__"): return clip(t.split("__")[-1].replace("_", " "))
     return clip(t) if t else ""
 
@@ -170,6 +170,18 @@ elif EVENT == "pre":
         render(r, "working", "running",
                {"title": r.get("topic", ""), "status": "Планирую",
                 "color": "blue", "detail": "", "ttl": 0})
+    elif tool in ("AskUserQuestion", "ExitPlanMode"):
+        # not "work" — the agent is blocked on the user. Mirror the `notify` card.
+        if tool == "AskUserQuestion":
+            ti = payload.get("tool_input") or {}
+            qs = ti.get("questions") if isinstance(ti, dict) else None
+            q = qs[0] if isinstance(qs, list) and qs and isinstance(qs[0], dict) else {}
+            detail = clip(q.get("question") or q.get("header") or "Нужен выбор", 60)
+        else:
+            detail = "Подтверди план"
+        render(r, "waiting", "waiting",
+               {"title": r.get("topic", ""), "status": "Жду ответа",
+                "color": "amber", "detail": detail, "ttl": 0})
     else:
         what = describe(tool, payload.get("tool_input"))
         if tool in ("Read", "Grep", "Glob", "NotebookRead", "WebFetch", "WebSearch"):

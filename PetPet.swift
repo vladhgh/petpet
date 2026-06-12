@@ -73,8 +73,7 @@ struct Config {
     var bubbleFont: String = "Courier New"
     var bubbleFontSize: CGFloat = 12.0
     var bubbleWidth: CGFloat = 140.0     // text-column width of the card
-    var bubbleMaxLines: Int = 0          // 0 = unlimited; otherwise clamp the title (тема чата)
-    var bubbleTitleSize: CGFloat = 0     // 0 = derive from bubbleFontSize + 2
+    var bubbleExpanded: Bool = false     // false = collapsed (status only, no topic caption)
     var bubbleOffsetX: CGFloat = 0       // nudge the card off its auto position
     var bubbleOffsetY: CGFloat = 0
 
@@ -90,8 +89,7 @@ struct Config {
         if let f  = obj["bubbleFont"]      as? String { c.bubbleFont      = f }
         if let fs = obj["bubbleFontSize"]  as? Double { c.bubbleFontSize  = CGFloat(fs) }
         if let w  = obj["bubbleWidth"]     as? Double { c.bubbleWidth     = CGFloat(w) }
-        if let ml = obj["bubbleMaxLines"]  as? Int    { c.bubbleMaxLines  = ml }
-        if let ts = obj["bubbleTitleSize"] as? Double { c.bubbleTitleSize = CGFloat(ts) }
+        if let ex = obj["bubbleExpanded"]  as? Bool   { c.bubbleExpanded  = ex }
         if let ox = obj["bubbleOffsetX"]   as? Double { c.bubbleOffsetX   = CGFloat(ox) }
         if let oy = obj["bubbleOffsetY"]   as? Double { c.bubbleOffsetY   = CGFloat(oy) }
         return c
@@ -101,8 +99,7 @@ struct Config {
         var obj: [String: Any] = [
             "pet": pet, "scale": Double(scale),
             "bubbleFont": bubbleFont, "bubbleFontSize": Double(bubbleFontSize),
-            "bubbleWidth": Double(bubbleWidth), "bubbleMaxLines": bubbleMaxLines,
-            "bubbleTitleSize": Double(bubbleTitleSize),
+            "bubbleWidth": Double(bubbleWidth), "bubbleExpanded": bubbleExpanded,
             "bubbleOffsetX": Double(bubbleOffsetX), "bubbleOffsetY": Double(bubbleOffsetY)
         ]
         if let x = x { obj["x"] = Double(x) }
@@ -265,19 +262,26 @@ final class PetView: NSView {
 final class BubbleView: NSView {
     enum Icon { case spinner, check, cross, question, dot }
 
-    // Card content: a bold title (the topic), an optional soft subtitle (the
-    // current activity), and a status icon on the right.
-    var title = ""
-    var subtitle = ""
+    // Card content: a bold status line (the current activity) is the focus, an
+    // optional detail line/code box below it, a status icon on the right, and —
+    // only when expanded — a small soft topic caption above (the first message).
+    var caption = ""                  // topic / first session message; expanded-only
+    var status = ""                   // current activity — the primary line
     var detail = ""
     var detailIsCode = false
+    var expanded = false
     var icon: Icon = .dot
     var accent: NSColor = .systemBlue
-    var titleFont = NSFont.monospacedSystemFont(ofSize: 13, weight: .bold)
-    var subFont   = NSFont.monospacedSystemFont(ofSize: 11, weight: .regular)
+    var statusFont  = NSFont.monospacedSystemFont(ofSize: 13, weight: .bold)
+    var captionFont = NSFont.monospacedSystemFont(ofSize: 9,  weight: .regular)
+    var detailFont  = NSFont.monospacedSystemFont(ofSize: 11, weight: .regular)
     var spinnerPhase = 0
     var maxTextWidth: CGFloat = 140   // text-column width (configurable)
-    var maxLines = 0                  // 0 = unlimited; otherwise clamp the title
+
+    // The expand/collapse chevron is the only interactive part of the bubble
+    // (hitTest passes everything else through). onToggle flips config.bubbleExpanded.
+    var onToggle: (() -> Void)?
+    private var toggleRect: NSRect = .zero
 
     static let padX: CGFloat = 10
     static let padY: CGFloat = 7
@@ -287,6 +291,8 @@ final class BubbleView: NSView {
     static let codeInsetY: CGFloat = 4
     static let iconSize: CGFloat = 15
     static let iconGap: CGFloat = 10
+    static let toggleSize: CGFloat = 13
+    static let toggleGap: CGFloat = 5
     static let tailDX: CGFloat = 22
     static let tailDY: CGFloat = 20
     static let tailMouth: CGFloat = 14
@@ -301,46 +307,66 @@ final class BubbleView: NSView {
 
     override var isFlipped: Bool { false }
 
-    private func lineHeight(_ f: NSFont) -> CGFloat { ceil(f.ascender - f.descender + f.leading) }
-
     private func wrapStyle(_ mode: NSLineBreakMode) -> NSParagraphStyle {
         let p = NSMutableParagraphStyle()
         p.alignment = .left; p.lineBreakMode = mode
         return p
     }
 
-    private func measuredH(_ s: String, font: NSFont, maxW: CGFloat, lineLimit: Int = 0) -> CGFloat {
+    private func measuredH(_ s: String, font: NSFont, maxW: CGFloat) -> CGFloat {
         guard !s.isEmpty else { return 0 }
-        let h = ceil((s as NSString).boundingRect(with: NSSize(width: maxW, height: 9999),
+        return ceil((s as NSString).boundingRect(with: NSSize(width: maxW, height: 9999),
             options: BubbleView.drawOpts,
             attributes: [.font: font, .paragraphStyle: wrapStyle(.byWordWrapping)]).height)
-        if lineLimit > 0 {
-            let cap = ceil(lineHeight(font) * CGFloat(lineLimit))
-            return min(h, cap)
-        }
-        return h
     }
 
-    private struct Metrics { var titleH, subH, detailH, codeBoxH, total: CGFloat }
+    private func singleLineH(_ f: NSFont) -> CGFloat { ceil(f.ascender - f.descender + f.leading) }
+
+    private func measuredAttrH(_ s: NSAttributedString, maxW: CGFloat) -> CGFloat {
+        guard s.length > 0 else { return 0 }
+        let m = NSMutableAttributedString(attributedString: s)
+        m.addAttribute(.paragraphStyle, value: wrapStyle(.byWordWrapping),
+                       range: NSRange(location: 0, length: m.length))
+        return ceil(m.boundingRect(with: NSSize(width: maxW, height: 9999), options: BubbleView.drawOpts).height)
+    }
+
+    // The first-session-message caption, marked with guillemets so it reads as a
+    // quoted request, kept to one truncated line.
+    private var captionText: String { caption.isEmpty ? "" : "«\(caption)»" }
+
+    // Primary line: bold status, plus a plain detail (filename/pattern) inlined
+    // right after it to stay compact. A code detail (Bash) is NOT inlined — it
+    // gets its own boxed block below.
+    private func primaryAttr() -> NSAttributedString {
+        let s = NSMutableAttributedString(string: status,
+            attributes: [.font: statusFont, .foregroundColor: BubbleView.ink])
+        if !detail.isEmpty && !detailIsCode {
+            s.append(NSAttributedString(string: "  " + detail,
+                attributes: [.font: detailFont, .foregroundColor: BubbleView.inkSoft]))
+        }
+        return s
+    }
+
+    private struct Metrics { var captionH, statusH, detailH, codeBoxH, total: CGFloat }
 
     private func layoutMetrics() -> Metrics {
         let maxW = maxTextWidth
-        let tH  = measuredH(title,    font: titleFont, maxW: maxW, lineLimit: maxLines)
-        let sH  = measuredH(subtitle, font: subFont,   maxW: maxW)
-        let dW  = detailIsCode ? maxW - BubbleView.codeInsetX * 2 : maxW
-        let dH  = measuredH(detail, font: subFont, maxW: dW)
-        let cBH = (detail.isEmpty || !detailIsCode) ? CGFloat(0) : dH + BubbleView.codeInsetY * 2
-        var tot = tH
-        if sH  > 0 { tot += BubbleView.lineGap + sH }
+        let cH  = (expanded && !caption.isEmpty) ? singleLineH(captionFont) : 0
+        let sH  = measuredAttrH(primaryAttr(), maxW: maxW)   // status (+ inline detail)
+        let dW  = maxW - BubbleView.codeInsetX * 2
+        let dH  = detailIsCode ? measuredH(detail, font: detailFont, maxW: dW) : 0
+        let cBH = (detailIsCode && !detail.isEmpty) ? dH + BubbleView.codeInsetY * 2 : 0
+        var tot = sH
+        if cH  > 0 { tot += cH + BubbleView.lineGap }   // caption sits above the status
         if cBH > 0 { tot += BubbleView.codeGap + cBH }
-        else if dH > 0 { tot += BubbleView.lineGap + dH }
-        return Metrics(titleH: tH, subH: sH, detailH: dH, codeBoxH: cBH, total: tot)
+        return Metrics(captionH: cH, statusH: sH, detailH: dH, codeBoxH: cBH, total: tot)
     }
 
     func fittingSize() -> NSSize {
         let m = layoutMetrics()
         let boxW = maxTextWidth + BubbleView.iconGap + BubbleView.iconSize + BubbleView.padX * 2
-        let boxH = max(m.total, BubbleView.iconSize) + BubbleView.padY * 2
+        let gutterH = BubbleView.iconSize + BubbleView.toggleGap + BubbleView.toggleSize
+        let boxH = max(m.total, gutterH) + BubbleView.padY * 2
         return NSSize(width:  boxW + BubbleView.tailDX + 4,
                       height: boxH + BubbleView.tailDY + 3)
     }
@@ -389,21 +415,20 @@ final class BubbleView: NSView {
 
         let pWrap  = wrapStyle(.byWordWrapping)
         let pCode  = wrapStyle(.byCharWrapping)
-        // When the title is line-clamped, truncate the last visible line with "…".
-        let pTitle = maxLines > 0 ? wrapStyle(.byTruncatingTail) : pWrap
+        let pClip  = wrapStyle(.byTruncatingTail)
 
-        if m.titleH > 0 {
-            let rect = NSRect(x: textX, y: curY - m.titleH, width: maxW, height: m.titleH)
-            (title as NSString).draw(with: rect, options: BubbleView.drawOpts,
-                attributes: [.font: titleFont, .foregroundColor: BubbleView.ink, .paragraphStyle: pTitle])
-            curY -= m.titleH
+        if m.captionH > 0 {
+            let rect = NSRect(x: textX, y: curY - m.captionH, width: maxW, height: m.captionH)
+            (captionText as NSString).draw(with: rect, options: BubbleView.drawOpts,
+                attributes: [.font: captionFont, .foregroundColor: BubbleView.inkSoft, .paragraphStyle: pClip])
+            curY -= m.captionH + BubbleView.lineGap
         }
-        if m.subH > 0 {
-            curY -= BubbleView.lineGap
-            let rect = NSRect(x: textX, y: curY - m.subH, width: maxW, height: m.subH)
-            (subtitle as NSString).draw(with: rect, options: BubbleView.drawOpts,
-                attributes: [.font: subFont, .foregroundColor: BubbleView.inkSoft, .paragraphStyle: pWrap])
-            curY -= m.subH
+        if m.statusH > 0 {
+            let attr = NSMutableAttributedString(attributedString: primaryAttr())
+            attr.addAttribute(.paragraphStyle, value: pWrap, range: NSRange(location: 0, length: attr.length))
+            let rect = NSRect(x: textX, y: curY - m.statusH, width: maxW, height: m.statusH)
+            attr.draw(with: rect, options: BubbleView.drawOpts)
+            curY -= m.statusH
         }
         if m.codeBoxH > 0 {
             curY -= BubbleView.codeGap
@@ -416,19 +441,48 @@ final class BubbleView: NSView {
                                   width: maxW - BubbleView.codeInsetX * 2,
                                   height: m.detailH)
             (detail as NSString).draw(with: codeRect, options: BubbleView.drawOpts,
-                attributes: [.font: subFont, .foregroundColor: BubbleView.ink, .paragraphStyle: pCode])
-        } else if m.detailH > 0 {
-            curY -= BubbleView.lineGap
-            let rect = NSRect(x: textX, y: curY - m.detailH, width: maxW, height: m.detailH)
-            (detail as NSString).draw(with: rect, options: BubbleView.drawOpts,
-                attributes: [.font: subFont, .foregroundColor: BubbleView.inkSoft, .paragraphStyle: pWrap])
+                attributes: [.font: detailFont, .foregroundColor: BubbleView.ink, .paragraphStyle: pCode])
         }
 
-        let iconBox = NSRect(x: textX + maxW + BubbleView.iconGap,
-                             y: boxRect.midY - BubbleView.iconSize / 2,
+        // Right gutter: status icon pinned to the bottom, expand/collapse chevron
+        // to the top. Both share the same column so they never collide with text.
+        let gutterX = textX + maxW + BubbleView.iconGap
+        let iconBox = NSRect(x: gutterX, y: boxRect.minY + BubbleView.padY,
                              width: BubbleView.iconSize, height: BubbleView.iconSize)
         drawIcon(in: iconBox)
+
+        let tS = BubbleView.toggleSize
+        toggleRect = NSRect(x: gutterX + (BubbleView.iconSize - tS) / 2,
+                            y: boxRect.maxY - BubbleView.padY - tS,
+                            width: tS, height: tS)
+        drawToggle(in: toggleRect)
     }
+
+    private func drawToggle(in b: NSRect) {
+        let bg = NSBezierPath(roundedRect: b, xRadius: 3, yRadius: 3)
+        BubbleView.codeBg.setFill(); bg.fill()
+        BubbleView.hairline.setStroke(); bg.lineWidth = 0.8; bg.stroke()
+        let p = NSBezierPath(); p.lineWidth = 1.4; p.lineCapStyle = .round; p.lineJoinStyle = .round
+        let cx = b.midX, cy = b.midY, dx = b.width * 0.22, dy = b.height * 0.13
+        if expanded {                                   // ⌃ — collapse
+            p.move(to: NSPoint(x: cx - dx, y: cy - dy))
+            p.line(to: NSPoint(x: cx,      y: cy + dy))
+            p.line(to: NSPoint(x: cx + dx, y: cy - dy))
+        } else {                                        // ⌄ — expand
+            p.move(to: NSPoint(x: cx - dx, y: cy + dy))
+            p.line(to: NSPoint(x: cx,      y: cy - dy))
+            p.line(to: NSPoint(x: cx + dx, y: cy + dy))
+        }
+        BubbleView.ink.setStroke(); p.stroke()
+    }
+
+    // Only the chevron is clickable; the rest of the bubble stays click-through.
+    override func hitTest(_ point: NSPoint) -> NSView? {
+        return toggleRect.contains(point) ? self : nil
+    }
+
+    override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
+    override func mouseDown(with event: NSEvent) { onToggle?() }
 
     private func drawIcon(in b: NSRect) {
         let c = accent.blended(withFraction: 0.12, of: BubbleView.ink) ?? accent
@@ -482,14 +536,12 @@ final class SettingsWindowController: NSWindowController {
     private var fontPopup: NSPopUpButton!
     private var sizeField: NSTextField!
     private var widthField: NSTextField!
-    private var linesField: NSTextField!
-    private var titleSizeField: NSTextField!
     private var offXField: NSTextField!
     private var offYField: NSTextField!
 
     convenience init(app: AppDelegate) {
         let panel = NSPanel(
-            contentRect: NSRect(x: 0, y: 0, width: 320, height: 280),
+            contentRect: NSRect(x: 0, y: 0, width: 320, height: 220),
             styleMask: [.titled, .closable, .nonactivatingPanel],
             backing: .buffered, defer: false)
         panel.title = "PetPet Settings"
@@ -530,9 +582,7 @@ final class SettingsWindowController: NSWindowController {
         fontPopup.target = self; fontPopup.action = #selector(fontChanged)
 
         sizeField      = numField(min: 8,    max: 24,  action: #selector(sizeChanged))
-        titleSizeField = numField(min: 0,    max: 36,  action: #selector(titleSizeChanged))
         widthField     = numField(min: 60,   max: 400, action: #selector(widthChanged))
-        linesField     = numField(min: 0,    max: 20,  action: #selector(linesChanged))
         offXField      = numField(min: -2000, max: 2000, action: #selector(offsetChanged))
         offYField      = numField(min: -2000, max: 2000, action: #selector(offsetChanged))
 
@@ -547,13 +597,11 @@ final class SettingsWindowController: NSWindowController {
         offsetRow.spacing = 4; offsetRow.orientation = .horizontal; offsetRow.alignment = .centerY
 
         let grid = NSGridView(views: [
-            [makeLabel("Pet"),        petPopup],
-            [makeLabel("Font"),       fontPopup],
-            [makeLabel("Size"),       row(sizeField, "pt")],
-            [makeLabel("Title size"), row(titleSizeField, "pt (0=авто)")],
-            [makeLabel("Width"),      row(widthField, "px")],
-            [makeLabel("Max lines"),  row(linesField, "(0=∞)")],
-            [makeLabel("Offset"),     offsetRow],
+            [makeLabel("Pet"),    petPopup],
+            [makeLabel("Font"),   fontPopup],
+            [makeLabel("Size"),   row(sizeField, "pt")],
+            [makeLabel("Width"),  row(widthField, "px")],
+            [makeLabel("Offset"), offsetRow],
         ])
         grid.translatesAutoresizingMaskIntoConstraints = false
         grid.columnSpacing = 8; grid.rowSpacing = 8
@@ -585,9 +633,7 @@ final class SettingsWindowController: NSWindowController {
         if let idx = pets.firstIndex(of: cfg.pet) { petPopup.selectItem(at: idx) }
         if let idx = BUBBLE_FONTS.firstIndex(of: cfg.bubbleFont) { fontPopup.selectItem(at: idx) }
         sizeField.stringValue      = "\(Int(cfg.bubbleFontSize))"
-        titleSizeField.stringValue = "\(Int(cfg.bubbleTitleSize))"
         widthField.stringValue     = "\(Int(cfg.bubbleWidth))"
-        linesField.stringValue     = "\(cfg.bubbleMaxLines)"
         offXField.stringValue      = "\(Int(cfg.bubbleOffsetX))"
         offYField.stringValue      = "\(Int(cfg.bubbleOffsetY))"
     }
@@ -609,9 +655,7 @@ final class SettingsWindowController: NSWindowController {
         app?.changeBubbleFont(name: app?.config.bubbleFont ?? "Courier New",
                               size: CGFloat(intValue(sizeField)))
     }
-    @objc private func titleSizeChanged() { app?.changeBubbleTitleSize(CGFloat(intValue(titleSizeField))) }
     @objc private func widthChanged()     { app?.changeBubbleWidth(CGFloat(intValue(widthField))) }
-    @objc private func linesChanged()     { app?.changeBubbleMaxLines(intValue(linesField)) }
     @objc private func offsetChanged() {
         app?.changeBubbleOffset(x: CGFloat(intValue(offXField)), y: CGFloat(intValue(offYField)))
     }
@@ -723,13 +767,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     func buildBubbleWindow() {
         bubbleView = BubbleView()
-        bubbleWindow = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 10, height: 10),
-                                styleMask: .borderless, backing: .buffered, defer: false)
+        bubbleView.onToggle = { [weak self] in self?.toggleExpanded() }
+        // PetWindow (canBecomeKey == false) so clicking the chevron never steals
+        // focus from whatever app the user is typing in.
+        bubbleWindow = PetWindow(contentRect: NSRect(x: 0, y: 0, width: 10, height: 10),
+                                 styleMask: .borderless, backing: .buffered, defer: false)
         bubbleWindow.isOpaque = false
         bubbleWindow.backgroundColor = .clear
         bubbleWindow.hasShadow = true
         bubbleWindow.level = .floating
-        bubbleWindow.ignoresMouseEvents = true
+        // hitTest in BubbleView makes everything except the chevron click-through.
+        bubbleWindow.ignoresMouseEvents = false
         bubbleWindow.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .stationary]
         bubbleWindow.contentView = bubbleView
         bubbleWindow.orderOut(nil)
@@ -791,14 +839,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         if hasCard { applyCard() }
     }
 
-    func changeBubbleMaxLines(_ n: Int) {
-        config.bubbleMaxLines = max(0, min(20, n))
-        config.save()
-        if hasCard { applyCard() }
-    }
-
-    func changeBubbleTitleSize(_ size: CGFloat) {
-        config.bubbleTitleSize = size <= 0 ? 0 : max(8, min(36, size))
+    func toggleExpanded() {
+        config.bubbleExpanded.toggle()
         config.save()
         if hasCard { applyCard() }
     }
@@ -951,25 +993,22 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
     }
 
-    // Build the card from the last raw values and show it.
-    // title = topic; subtitle = current activity (status · detail). If there is
-    // no topic, the status itself becomes the title (e.g. session-start "Готов").
+    // Build the card from the last raw values and show it. The status (current
+    // activity) is the prominent line; the topic (first message) is a small soft
+    // caption shown above it only when expanded. Doneness is shown by the icon.
     func applyCard() {
         let icon = iconFor(lastColorName)
-        var t   = lastTitle
-        var sub = lastStatus
-        if t.isEmpty { t = lastStatus; sub = "" }
-        bubbleView.title    = t
-        bubbleView.subtitle = sub
+        bubbleView.caption      = lastTitle
+        bubbleView.status       = lastStatus
         bubbleView.detail       = lastDetail
         bubbleView.detailIsCode = lastDetailCode
+        bubbleView.expanded     = config.bubbleExpanded
         bubbleView.icon         = icon
-        bubbleView.accent    = statusColor(lastColorName)
-        let titleSz = config.bubbleTitleSize > 0 ? config.bubbleTitleSize : config.bubbleFontSize + 2
-        bubbleView.titleFont = vintageFont(config.bubbleFont, titleSz, bold: true)
-        bubbleView.subFont   = vintageFont(config.bubbleFont, config.bubbleFontSize, bold: false)
+        bubbleView.accent       = statusColor(lastColorName)
+        bubbleView.statusFont  = vintageFont(config.bubbleFont, config.bubbleFontSize + 1, bold: true)
+        bubbleView.captionFont = vintageFont(config.bubbleFont, max(8, config.bubbleFontSize - 3), bold: false)
+        bubbleView.detailFont  = vintageFont(config.bubbleFont, config.bubbleFontSize, bold: false)
         bubbleView.maxTextWidth = config.bubbleWidth
-        bubbleView.maxLines     = config.bubbleMaxLines
         bubbleView.needsDisplay = true
 
         bubbleHideTimer?.invalidate()
