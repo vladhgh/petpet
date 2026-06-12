@@ -882,8 +882,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // A real toss (let go while still moving) enters gravity flight; a gentle
         // placement (let go nearly still) just stays where it was dropped.
         let launch: CGFloat = 150
+        let launchVelocityScale: CGFloat = 0.45
         thrown = hypot(vx, vy) >= launch
-        if thrown { vx *= 0.45; vy *= 0.45 }   // soften the throw — don't fling it across the screen
+        if thrown { vx *= launchVelocityScale; vy *= launchVelocityScale }   // soften the throw — don't fling it across the screen
         else      { vx = 0; vy = 0 }
     }
 
@@ -905,7 +906,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             // In flight after a toss: gravity pulls down (origin is bottom-left,
             // so "down" is -y) and a light air drag lets the horizontal throw
             // glide on instead of stopping dead the instant the mouse releases.
-            let gravity: CGFloat = 2200, airDrag: CGFloat = 0.99
+            let gravity: CGFloat = 3800, airDrag: CGFloat = 0.99
             vy -= gravity * dt
             vx *= airDrag
         } else {
