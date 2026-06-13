@@ -29,20 +29,20 @@ There are no tests. To verify a change: `build` then `restart`, watch the pet, a
 
 ## Architecture
 
-Two halves that communicate **only through JSON files** in this directory — no sockets, no IPC. This file-based decoupling is the core design: the hook never talks to the app directly.
+Two halves that communicate **only through JSON files** in `~/.petpet/` — no sockets, no IPC. This file-based decoupling is the core design: the hook never talks to the app directly.
 
-1. **`PetPet.swift`** — the whole GUI app (AppKit, single file, ~700 lines). It polls the JSON files every 0.2s by mtime and renders. It never writes state files; it only reads them (plus `config.json`, which it owns).
+1. **`PetPet.swift`** — the whole GUI app (AppKit, single file, ~1200 lines). It polls the JSON files every 0.2s by mtime and renders. It never writes state files; it only reads them (plus `config.json`, which it owns).
 
-2. **`petpet-hook.py`** — translates Codex hook events into mascot state. `petpet-hook.sh` is a thin wrapper so `settings.json` can pass a stable event name (`user-prompt`, `pre`, `post`, `notify`, `stop`, `session-start`, `session-end`) while preserving stdin. The hooks are wired in `~/.Codex/settings.json`, not in this repo.
+2. **`petpet-hook.py`** — translates Codex hook events into mascot state. `petpet-hook.sh` is a thin wrapper so `settings.json` can pass a stable event name (`user-prompt`, `pre`, `post`, `notify`, `stop`, `session-start`, `session-end`) while preserving stdin. The hooks are wired in `~/.codex/settings.json`, not in this repo.
 
 ### The JSON contract (how the two halves meet)
 
-- **`config.json`** — persistent settings: `pet`, `scale`, `x`, `y`. Written by the app (on drag/resize) and by `petpetctl`. This one is tracked in git; the other JSON files are not.
+- **`config.json`** — persistent settings: `pet`, `scale`, `x`, `y`, plus bubble appearance (`bubbleFont`, `bubbleFontSize`, `bubbleWidth`, `bubbleExpanded`, `bubbleOffsetX`, `bubbleOffsetY`). Written by the app (on drag/resize, and from the settings panel) and by `petpetctl`. Gitignored like the other JSON files below — it's a per-machine runtime artifact, not source.
 - **`event.json`** — `{"state", "sleep", "title", "status", "color", "detail", "ttl", "sleep_after"}`. Animation state + bubble card in one file. `ttl` seconds to show the card; `ttl: 0` = sticky until the next event. Optional `sleep_after`: seconds to keep the card before the pet dozes off (used by a just-finished session to linger on "Готово" before sleeping).
 - **`session.json`** — the hook's per-session bookkeeping. Each session stores its own latest render (`phase`/`state`/`card`); the hook recomputes `event.json` by picking whichever session wins on `phase` priority (waiting > working > ready > finished > idle). So a session that just started or finished never steals the bubble from one still working, and the pet sleeps only when *every* session is idle.
 - **`states.json`** — optional override table read by the hook: `{ "<trigger-key>": {"state","status","color","code"} }`. Each `render()` call in the hook tags itself with a trigger key (`session-start`, `user-prompt`, `Bash`, `Read`, `Grep`, `Web`, `Edit`, `Write`, `Task`, `TodoWrite`, `mcp`, `AskUserQuestion`, `ExitPlanMode`, `notify`, `stop`, `post-error`, `idle`); a present field overrides that trigger's animation/text/color (`detail` stays dynamic). Missing file or key → built-in defaults. Authored by **`state-editor.html`** (a standalone editor served by `petpet-editor.py` via `./petpetctl.sh editor`), which writes only the diff from defaults; its **▶ На петомце** button writes `event.json` for an instant on-pet preview. Gitignored.
 
-`config.json`, `event.json`, `session.json`, `states.json`, and the compiled `petpet` binary are gitignored — they're runtime artifacts. Source under version control is `PetPet.swift`, the two hook scripts, `petpetctl.sh`, `petpet-editor.py`, and the two HTML tools (`sprite-viewer.html`, `state-editor.html`).
+`config.json`, `event.json`, `session.json`, and `states.json` live in `~/.petpet/` — per-machine runtime artifacts, kept out of the project directory entirely (so nothing to gitignore). The compiled `petpet` binary stays in this directory and is gitignored. Source under version control is `PetPet.swift`, the two hook scripts, `petpetctl.sh`, `petpet-editor.py`, and the two HTML tools (`sprite-viewer.html`, `state-editor.html`).
 
 ### Animation model
 
@@ -50,9 +50,13 @@ Sprites are 8-col × 9-row spritesheets reused from Codex/petdex (`~/.codex/pets
 
 Hook status text (the bubble) is in Russian — match that when editing `petpet-hook.py`.
 
+### Menus & settings
+
+The app currently runs with `NSApp.setActivationPolicy(.accessory)` — no Dock icon, no menu bar item. Right-clicking the pet opens a context menu: Bigger/Smaller (scale), Settings, Quit. **Settings** opens `SettingsWindowController`, a floating non-activating panel covering pet, bubble font, font size, bubble width, and bubble offset X/Y — it writes straight into `config.json` via `Config.save()`. `scale` itself is only adjustable via Bigger/Smaller or `petpetctl scale`, not from the settings panel.
+
 ### Disabling
 
-Drop a file named `hooks-disabled` in this directory to make the hook no-op without editing `settings.json`.
+Drop a file named `hooks-disabled` in `~/.petpet/` to make the hook no-op without editing `settings.json`.
 
 ## Задачи и бэклог
 

@@ -12,10 +12,13 @@
 #   petpetctl build            recompile from source
 #   petpetctl pets             list installed pets
 
-DIR="$HOME/Code/petpet"
+DIR="$(cd "$(dirname "$0")" && pwd)"
+DATA="$HOME/.petpet"
 BIN="$DIR/petpet"
-CONFIG="$DIR/config.json"
-EVENT="$DIR/event.json"
+CONFIG="$DATA/config.json"
+EVENT="$DATA/event.json"
+
+mkdir -p "$DATA"
 
 set_json_key() {  # set_json_key <key> <raw-json-value>
   python3 - "$CONFIG" "$1" "$2" <<'PY'

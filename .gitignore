@@ -3,11 +3,7 @@ petpet
 petpet.tmp
 petpet.dSYM/
 
-# runtime state (written by hooks, not part of source)
-config.json
-event.json
-session.json
-states.json
+# runtime state now lives in ~/.petpet/, not here
 *.tmp
 
 # logs

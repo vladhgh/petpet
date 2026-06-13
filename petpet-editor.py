@@ -16,8 +16,10 @@ from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import unquote
 
 ROOT = os.path.dirname(os.path.abspath(__file__))
-STATES_PATH = os.path.join(ROOT, "states.json")
-EVENT_PATH = os.path.join(ROOT, "event.json")
+DATA_DIR = os.path.join(os.path.expanduser("~"), ".petpet")
+STATES_PATH = os.path.join(DATA_DIR, "states.json")
+EVENT_PATH = os.path.join(DATA_DIR, "event.json")
+os.makedirs(DATA_DIR, exist_ok=True)
 PORT = int(sys.argv[1]) if len(sys.argv) > 1 else 7892
 PET_BASES = [
     os.path.join(os.path.expanduser("~"), ".codex", "pets"),

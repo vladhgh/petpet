@@ -1,7 +1,7 @@
 // PetPet — a tiny floating desktop mascot for AI coding agents.
 // Reuses Codex/petdex spritesheets (~/.codex/pets/<slug>/spritesheet.webp).
 // Driven by event.json written by petpet-hook.py:
-//   ~/Code/petpet/event.json  {"state":"running","sleep":false,"status":"Работаю","color":"blue","detail":"file.py","ttl":0}
+//   ~/.petpet/event.json  {"state":"running","sleep":false,"status":"Работаю","color":"blue","detail":"file.py","ttl":0}
 // Optional "sleep_after": N keeps this card up, then dozes the pet after N seconds.
 //
 // Build: swiftc -O PetPet.swift -o petpet   (use `petpetctl build` — it re-signs)
@@ -11,7 +11,7 @@ import AppKit
 // MARK: - Paths
 
 let HOME = NSHomeDirectory()
-let PETPET_DIR = HOME + "/Code/petpet"
+let PETPET_DIR = HOME + "/.petpet"
 let CONFIG_PATH = PETPET_DIR + "/config.json"
 let EVENT_PATH  = PETPET_DIR + "/event.json"
 

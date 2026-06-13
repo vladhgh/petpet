@@ -19,16 +19,18 @@
 import sys, os, json, time
 
 EVENT = sys.argv[1] if len(sys.argv) > 1 else ""
-PETPET = os.path.join(os.path.expanduser("~"), "Code/petpet")
-SESS_PATH = os.path.join(PETPET, "session.json")
-EVENT_PATH = os.path.join(PETPET, "event.json")
-STATES_PATH = os.path.join(PETPET, "states.json")
+DATA_DIR = os.path.join(os.path.expanduser("~"), ".petpet")
+SESS_PATH = os.path.join(DATA_DIR, "session.json")
+EVENT_PATH = os.path.join(DATA_DIR, "event.json")
+STATES_PATH = os.path.join(DATA_DIR, "states.json")
 HOME = os.path.expanduser("~")
 GRACE = 6.0       # seconds a finished session lingers on "Готово" before sleeping
 READY_GRACE = 4.0 # seconds a just-started session greets before it stops winning
 
-if os.path.exists(os.path.join(PETPET, "hooks-disabled")):
+if os.path.exists(os.path.join(DATA_DIR, "hooks-disabled")):
     sys.exit(0)
+
+os.makedirs(DATA_DIR, exist_ok=True)
 
 payload = {}
 try:
