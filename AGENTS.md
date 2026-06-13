@@ -33,7 +33,7 @@ Two halves that communicate **only through JSON files** in `~/.petpet/` — no s
 
 1. **`PetPet.swift`** — the whole GUI app (AppKit, single file, ~1200 lines). It polls the JSON files every 0.2s by mtime and renders. It never writes state files; it only reads them (plus `config.json`, which it owns).
 
-2. **`petpet-hook.py`** — translates Codex hook events into mascot state. `petpet-hook.sh` is a thin wrapper so `settings.json` can pass a stable event name (`user-prompt`, `pre`, `post`, `notify`, `stop`, `session-start`, `session-end`) while preserving stdin. The hooks are wired in `~/.codex/settings.json`, not in this repo.
+2. **`petpet-hook.py`** — translates Codex hook events into mascot state. `settings.json` invokes it directly (`python3 petpet-hook.py <event>`) with a stable event name (`user-prompt`, `pre`, `post`, `notify`, `stop`, `session-start`, `session-end`) as its only argument; the event's JSON payload arrives on stdin. The hooks are wired in `~/.codex/settings.json`, not in this repo.
 
 ### The JSON contract (how the two halves meet)
 
@@ -42,7 +42,7 @@ Two halves that communicate **only through JSON files** in `~/.petpet/` — no s
 - **`session.json`** — the hook's per-session bookkeeping. Each session stores its own latest render (`phase`/`state`/`card`); the hook recomputes `event.json` by picking whichever session wins on `phase` priority (waiting > working > ready > finished > idle). So a session that just started or finished never steals the bubble from one still working, and the pet sleeps only when *every* session is idle.
 - **`states.json`** — optional override table read by the hook: `{ "<trigger-key>": {"state","status","color","code"} }`. Each `render()` call in the hook tags itself with a trigger key (`session-start`, `user-prompt`, `Bash`, `Read`, `Grep`, `Web`, `Edit`, `Write`, `Task`, `TodoWrite`, `mcp`, `AskUserQuestion`, `ExitPlanMode`, `notify`, `stop`, `post-error`, `idle`); a present field overrides that trigger's animation/text/color (`detail` stays dynamic). Missing file or key → built-in defaults. Authored by **`state-editor.html`** (a standalone editor served by `petpet-editor.py` via `./petpetctl.sh editor`), which writes only the diff from defaults; its **▶ На петомце** button writes `event.json` for an instant on-pet preview. Gitignored.
 
-`config.json`, `event.json`, `session.json`, and `states.json` live in `~/.petpet/` — per-machine runtime artifacts, kept out of the project directory entirely (so nothing to gitignore). The compiled `petpet` binary lives there too (`~/.petpet/petpet`), so the project directory holds only source — nothing build-generated lands in it. Source under version control is `PetPet.swift`, the two hook scripts, `petpetctl.sh`, `petpet-editor.py`, and the two browser tools under `web/` (`web/sprite-viewer.html`, `web/state-editor.html`).
+`config.json`, `event.json`, `session.json`, and `states.json` live in `~/.petpet/` — per-machine runtime artifacts, kept out of the project directory entirely (so nothing to gitignore). The compiled `petpet` binary lives there too (`~/.petpet/petpet`), so the project directory holds only source — nothing build-generated lands in it. Source under version control is `PetPet.swift`, the hook script `petpet-hook.py`, `petpetctl.sh`, `petpet-editor.py`, and the two browser tools under `web/` (`web/sprite-viewer.html`, `web/state-editor.html`).
 
 ### Animation model
 
