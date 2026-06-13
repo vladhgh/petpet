@@ -14,7 +14,7 @@
 
 DIR="$(cd "$(dirname "$0")" && pwd)"
 DATA="$HOME/.petpet"
-BIN="$DIR/petpet"
+BIN="$DATA/petpet"   # build output is a per-machine artifact — lives with the rest of the runtime state, not in the source tree
 CONFIG="$DATA/config.json"
 EVENT="$DATA/event.json"
 
@@ -93,7 +93,7 @@ case "$1" in
       cd "$DIR" && nohup python3 petpet-editor.py "$PORT" >/tmp/petpet-editor.log 2>&1 &
       sleep 0.5
     fi
-    URL="http://localhost:$PORT/state-editor.html"
+    URL="http://localhost:$PORT/web/state-editor.html"
     echo "editor -> $URL"
     open "$URL" 2>/dev/null || true
     ;;
@@ -101,11 +101,10 @@ case "$1" in
     # build to a temp file + mv into place so the binary gets a FRESH inode.
     # Rebuilding in place keeps the old inode, and the kernel's cached code
     # signature then mismatches → launchd kills it with OS_REASON_CODESIGNING.
-    cd "$DIR" \
-      && swiftc -O PetPet.swift -o petpet.tmp \
-      && codesign -s - --force petpet.tmp \
-      && mv -f petpet.tmp petpet \
-      && echo "built + signed" || { echo "build failed"; rm -f "$DIR/petpet.tmp"; }
+    swiftc -O "$DIR/PetPet.swift" -o "$DATA/petpet.tmp" \
+      && codesign -s - --force "$DATA/petpet.tmp" \
+      && mv -f "$DATA/petpet.tmp" "$BIN" \
+      && echo "built + signed -> $BIN" || { echo "build failed"; rm -f "$DATA/petpet.tmp"; }
     ;;
   pets)
     for d in "$HOME/.codex/pets"/*/ "$HOME/.petdex/pets"/*/; do

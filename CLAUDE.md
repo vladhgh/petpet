@@ -25,7 +25,7 @@ All control goes through `petpetctl.sh`:
 
 There are no tests. To verify a change: `build` then `restart`, watch the pet, and `tail -f /tmp/petpet.log` for crashes.
 
-**`build` must move a fresh binary into place, never overwrite in-place.** It compiles to `petpet.tmp`, code-signs it, then `mv`s it over `petpet`. Overwriting the existing inode makes the kernel's cached code signature mismatch and launchd kills the process with `OS_REASON_CODESIGNING`. Keep that pattern if you touch the build step.
+**`build` must move a fresh binary into place, never overwrite in-place.** It compiles to `~/.petpet/petpet.tmp`, code-signs it, then `mv`s it over `~/.petpet/petpet`. Overwriting the existing inode makes the kernel's cached code signature mismatch and launchd kills the process with `OS_REASON_CODESIGNING`. Keep that pattern if you touch the build step.
 
 ## Architecture
 
@@ -42,7 +42,7 @@ Two halves that communicate **only through JSON files** in `~/.petpet/` — no s
 - **`session.json`** — the hook's per-session bookkeeping. Each session stores its own latest render (`phase`/`state`/`card`); the hook recomputes `event.json` by picking whichever session wins on `phase` priority (waiting > working > ready > finished > idle). So a session that just started or finished never steals the bubble from one still working, and the pet sleeps only when *every* session is idle.
 - **`states.json`** — optional override table read by the hook: `{ "<trigger-key>": {"state","status","color","code"} }`. Each `render()` call in the hook tags itself with a trigger key (`session-start`, `user-prompt`, `Bash`, `Read`, `Grep`, `Web`, `Edit`, `Write`, `Task`, `TodoWrite`, `mcp`, `AskUserQuestion`, `ExitPlanMode`, `notify`, `stop`, `post-error`, `idle`); a present field overrides that trigger's animation/text/color (`detail` stays dynamic). Missing file or key → built-in defaults. Authored by **`state-editor.html`** (a standalone editor served by `petpet-editor.py` via `./petpetctl.sh editor`), which writes only the diff from defaults; its **▶ На петомце** button writes `event.json` for an instant on-pet preview. Gitignored.
 
-`config.json`, `event.json`, `session.json`, and `states.json` live in `~/.petpet/` — per-machine runtime artifacts, kept out of the project directory entirely (so nothing to gitignore). The compiled `petpet` binary stays in this directory and is gitignored. Source under version control is `PetPet.swift`, the two hook scripts, `petpetctl.sh`, `petpet-editor.py`, and the two HTML tools (`sprite-viewer.html`, `state-editor.html`).
+`config.json`, `event.json`, `session.json`, and `states.json` live in `~/.petpet/` — per-machine runtime artifacts, kept out of the project directory entirely (so nothing to gitignore). The compiled `petpet` binary lives there too (`~/.petpet/petpet`), so the project directory holds only source — nothing build-generated lands in it. Source under version control is `PetPet.swift`, the two hook scripts, `petpetctl.sh`, `petpet-editor.py`, and the two browser tools under `web/` (`web/sprite-viewer.html`, `web/state-editor.html`).
 
 ### Animation model
 

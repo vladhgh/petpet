@@ -6,8 +6,8 @@
 #                       its next event, so edits take effect on the next tool call
 #   POST /api/event   → overwrite event.json — pushes a one-shot preview straight
 #                       to the running pet (it polls event.json every 0.2s)
-# Everything else is served as static files from the repo dir (so /state-editor
-# .html, /sprite-viewer.html and /pets/<slug>/spritesheet.webp all just work).
+# Everything else is served as static files from the repo dir (so /web/state-
+# editor.html, /web/sprite-viewer.html and /pets/<slug>/spritesheet.webp all work).
 #
 # Single-user localhost tool: bound to 127.0.0.1, no auth, intentionally tiny.
 
@@ -109,7 +109,7 @@ class Handler(SimpleHTTPRequestHandler):
 if __name__ == "__main__":
     os.chdir(ROOT)
     httpd = ThreadingHTTPServer(("127.0.0.1", PORT), Handler)
-    print(f"petpet-editor on http://localhost:{PORT}/state-editor.html")
+    print(f"petpet-editor on http://localhost:{PORT}/web/state-editor.html")
     try:
         httpd.serve_forever()
     except KeyboardInterrupt:

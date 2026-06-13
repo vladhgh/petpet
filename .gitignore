@@ -1,10 +1,5 @@
-# compiled binary
-petpet
-petpet.tmp
-petpet.dSYM/
-
-# runtime state now lives in ~/.petpet/, not here
-*.tmp
+# The compiled binary and all runtime state live in ~/.petpet/, not here —
+# the source tree holds only source. Nothing build-generated lands in this dir.
 
 # logs
 *.log
