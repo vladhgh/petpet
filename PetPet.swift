@@ -117,7 +117,6 @@ struct AnimSpec  { let row: Int; let frames: [FrameSpec] }
 
 let COLS = 8
 let ROWS = 9
-let JUMP_ROW = 4
 
 // Transparent padding around the sprite inside the pet window, as fractions of the
 // sprite's pixel size. The window hard-clips, so deformation needs this headroom:
@@ -919,14 +918,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     // MARK: interaction
 
-    func jumpFrame(for verticalVelocity: CGFloat) -> Int {
-        if abs(verticalVelocity) < 30 { return 0 }
-        if verticalVelocity > 260 { return 4 }
-        if verticalVelocity > 90  { return 3 }
-        if verticalVelocity > 30  { return 2 }
-        return 1
-    }
-
     func beginDrag(grab: NSPoint) {
         dragging = true; didMove = false
         px = window.frame.origin.x; py = window.frame.origin.y
@@ -981,27 +972,32 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         px += vx * dt; py += vy * dt
 
         var onFloor = true
+        let rect = visualRectInWindow()          // sprite box within the padded window
+        let s = spriteSizePx()
         if let vis = NSScreen.main?.visibleFrame {
-            let w = window.frame.width, h = window.frame.height
-            let bounce: CGFloat = 0.5                 // restitution off the edges
-            if px < vis.minX     { px = vis.minX;     vx =  abs(vx) * bounce }
-            if px > vis.maxX - w { px = vis.maxX - w; vx = -abs(vx) * bounce }
-            if py > vis.maxY - h { py = vis.maxY - h; vy = -abs(vy) * bounce }
-            if py < vis.minY {                        // land on the floor (no bounce)
-                py = vis.minY
+            let bounce: CGFloat = 0.5            // restitution off the edges
+            let leftLimit  = vis.minX - rect.minX
+            let rightLimit = vis.maxX - rect.minX - s.width
+            let floorLimit = vis.minY - rect.minY
+            let topLimit   = vis.maxY - rect.minY - s.height
+            if px < leftLimit  { px = leftLimit;  vx =  abs(vx) * bounce }
+            if px > rightLimit { px = rightLimit; vx = -abs(vx) * bounce }
+            if py > topLimit   { py = topLimit;   vy = -abs(vy) * bounce }
+            if py < floorLimit {                 // land on the floor (no bounce)
+                if vy < -30 { springV += SPRING_IMPACT * (-vy) * 0.012 }   // impact -> squash
+                py = floorLimit
                 vy = 0
-                vx *= 0.78                            // ground friction while skidding to rest
+                vx *= 0.78                        // ground friction while skidding to rest
             }
-            onFloor = py <= vis.minY + 1
+            onFloor = py <= floorLimit + 1
         }
 
         window.setFrameOrigin(NSPoint(x: px, y: py))
-        // Face the direction of horizontal motion (= toward the cursor while
-        // dragging, = throw direction in flight). Hysteresis avoids flicker.
+        // Face the direction of horizontal motion. Hysteresis avoids flicker.
         if vx < -40 { facingLeft = true }
         else if vx > 40 { facingLeft = false }
-        let col = jumpFrame(for: vy)
-        view.show(sprite.frame(row: JUMP_ROW, col: col, flipped: facingLeft))
+        // Decision beta: hold a neutral cell; the deformation tick does all squash/stretch + lean.
+        view.show(sprite.frame(row: 0, col: 0, flipped: facingLeft))
         repositionBubble()
 
         // A toss keeps going until it has come to rest on the floor; a gentle
