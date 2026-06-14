@@ -17,6 +17,8 @@ DATA="$HOME/.petpet"
 BIN="$DATA/petpet"   # build output is a per-machine artifact — lives with the rest of the runtime state, not in the source tree
 CONFIG="$DATA/config.json"
 EVENT="$DATA/event.json"
+LABEL="local.petpet"
+PLIST="$DATA/$LABEL.plist"
 
 mkdir -p "$DATA"
 
@@ -37,19 +39,48 @@ json.dump(obj, open(path, "w"), indent=2)
 PY
 }
 
+launch_domain() {
+  printf 'gui/%s' "$(id -u)"
+}
+
+write_launchd_plist() {
+  cat > "$PLIST" <<EOF
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>$LABEL</string>
+  <key>ProgramArguments</key>
+  <array>
+    <string>$BIN</string>
+  </array>
+  <key>RunAtLoad</key>
+  <true/>
+  <key>StandardOutPath</key>
+  <string>/tmp/petpet.log</string>
+  <key>StandardErrorPath</key>
+  <string>/tmp/petpet.log</string>
+</dict>
+</plist>
+EOF
+}
+
 is_running() {
-  pgrep -x "$(basename "$BIN")" >/dev/null 2>&1
+  launchctl print "$(launch_domain)/$LABEL" 2>/dev/null | grep -q 'pid = '
 }
 
 stop_running() {
-  pkill -x "$(basename "$BIN")" 2>/dev/null
+  launchctl bootout "$(launch_domain)/$LABEL" >/dev/null 2>&1
 }
 
 case "$1" in
   start)
     if is_running; then echo "already running"; exit 0; fi
     [ -x "$BIN" ] || { echo "binary missing — run: petpetctl build"; exit 1; }
-    nohup "$BIN" </dev/null >/tmp/petpet.log 2>&1 &
+    write_launchd_plist
+    stop_running
+    launchctl bootstrap "$(launch_domain)" "$PLIST" >/dev/null 2>&1
     sleep 0.5
     is_running && echo "started" || { echo "failed; see /tmp/petpet.log"; cat /tmp/petpet.log; }
     ;;

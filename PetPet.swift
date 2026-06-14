@@ -117,6 +117,7 @@ struct AnimSpec  { let row: Int; let frames: [FrameSpec] }
 
 let COLS = 8
 let ROWS = 9
+let JUMP_ROW = 4
 
 // Transparent padding around the sprite inside the pet window, as fractions of the
 // sprite's pixel size. The window hard-clips, so deformation needs this headroom:
@@ -926,12 +927,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     // MARK: interaction
 
     func beginDrag(grab: NSPoint) {
+        sleepAfterTimer?.invalidate(); sleepAfterTimer = nil
         dragging = true; didMove = false
         px = window.frame.origin.x; py = window.frame.origin.y
         anchorX = px; anchorY = py
         grabDX = grab.x; grabDY = grab.y
         vx = 0; vy = 0; thrown = false
-        startPhysics(); refreshDisplay(); updateWander()
+        startTick()   // a sleeping pet has its deform tick paused — wake it so the grab/toss still stretches
+        startPhysics(); refreshDisplay(); showTossFrame(held: true); updateWander()
     }
 
     func dragTo(mouse: NSPoint) {
@@ -1003,8 +1006,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // Face the direction of horizontal motion. Hysteresis avoids flicker.
         if vx < -40 { facingLeft = true }
         else if vx > 40 { facingLeft = false }
-        // Decision beta: hold a neutral cell; the deformation tick does all squash/stretch + lean.
-        view.show(sprite.frame(row: 0, col: 0, flipped: facingLeft))
+        showTossFrame(held: dragging)
         repositionBubble()
 
         // A toss keeps going until it has come to rest on the floor; a gentle
@@ -1021,7 +1023,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             config.x = window.frame.origin.x; config.y = window.frame.origin.y
             config.save()
         }
+        if asleep { stopTick() }
         refreshDisplay(); updateWander()
+    }
+
+    func showTossFrame(held: Bool) {
+        // Held in the cursor's grip → crouch (col 0); once in flight → airborne tuck (col 2).
+        // Each is a single stable frame; the deform tick adds the stretch/lean/landing-spring
+        // on top, so there's no per-frame jump cycling (which looked odd flicking past).
+        let col = held ? 0 : 2
+        view.show(sprite.frame(row: JUMP_ROW, col: col, flipped: facingLeft))
     }
 
     // MARK: polling (single event.json — merges state + bubble)
@@ -1226,15 +1237,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             sy *= 1 + b; sx *= 1 - b * 0.6
         }
 
-        // Velocity stretch: nonzero only while the physics velocity is nonzero (drag/toss).
-        let st = min(abs(vy) / SS_REF, 1) * SS_FORCE
-        sy *= 1 + st; sx *= 1 - st * 0.5
+        // Velocity stretch: the whole toss (held + in flight). The frame is held stable,
+        // so this continuous stretch is what conveys vertical motion.
+        if tossing {
+            let st = min(abs(vy) / SS_REF, 1) * SS_FORCE
+            sy *= 1 + st; sx *= 1 - st * 0.5
+        }
 
         // Impact squash.
         sy *= 1 - springS; sx *= 1 + springS * 0.6
 
-        // Lean into horizontal velocity, eased.
-        let target = max(-TILT_MAX, min(TILT_MAX, vx * (TILT_MAX / TILT_REF)))
+        // Lean into horizontal velocity, eased — during the toss, upright at rest.
+        let target = tossing ? max(-TILT_MAX, min(TILT_MAX, vx * (TILT_MAX / TILT_REF))) : 0
         tiltDeg += (target - tiltDeg) * min(1, dt * 12)
 
         view.setDeform(sx: sx, sy: sy, rot: tiltDeg * .pi / 180)
