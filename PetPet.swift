@@ -1,7 +1,7 @@
 // PetPet — a tiny floating desktop mascot for AI coding agents.
 // Reuses Codex/petdex spritesheets (~/.codex/pets/<slug>/spritesheet.webp).
 // Driven by event.json written by petpet-hook.py:
-//   ~/Code/petpet/event.json  {"state":"running","sleep":false,"status":"Работаю","color":"blue","detail":"file.py","ttl":0}
+//   ~/.petpet/event.json  {"state":"running","sleep":false,"status":"Работаю","color":"blue","detail":"file.py","ttl":0}
 // Optional "sleep_after": N keeps this card up, then dozes the pet after N seconds.
 //
 // Build: swiftc -O PetPet.swift -o petpet   (use `petpetctl build` — it re-signs)
@@ -11,7 +11,7 @@ import AppKit
 // MARK: - Paths
 
 let HOME = NSHomeDirectory()
-let PETPET_DIR = HOME + "/Code/petpet"
+let PETPET_DIR = HOME + "/.petpet"
 let CONFIG_PATH = PETPET_DIR + "/config.json"
 let EVENT_PATH  = PETPET_DIR + "/event.json"
 
@@ -119,6 +119,13 @@ let COLS = 8
 let ROWS = 9
 let JUMP_ROW = 4
 
+// Transparent padding around the sprite inside the pet window, as fractions of the
+// sprite's pixel size. The window hard-clips, so deformation needs this headroom:
+// top for stretch + spring overshoot, sides for the 12-degree tilt about the feet.
+let PAD_TOP: CGFloat = 0.55
+let PAD_BOTTOM: CGFloat = 0.12
+let PAD_SIDE: CGFloat = 0.32
+
 func uniform(_ row: Int, _ count: Int, _ dur: Double, _ last: Double) -> AnimSpec {
     var f: [FrameSpec] = []
     for c in 0..<count {
@@ -206,19 +213,48 @@ final class PetWindow: NSWindow {
 final class PetView: NSView {
     weak var owner: AppDelegate?
 
+    // The sprite is drawn into this owned sublayer (not the view's backing layer) so we
+    // can anchor it at the feet and apply a deformation transform every frame without
+    // AppKit resetting the geometry on layout. The backing layer stays a plain container.
+    let spriteLayer = CALayer()
+
     override var isFlipped: Bool { false }
 
-    // Layer is configured once here — contentsGravity and magnificationFilter never change per frame.
     override func makeBackingLayer() -> CALayer {
-        let l = CALayer()
-        l.contentsGravity = .resizeAspect
-        l.magnificationFilter = .nearest   // crisp pixels; faster than trilinear for pixel art
-        return l
+        let container = CALayer()
+        spriteLayer.contentsGravity = .resizeAspect
+        spriteLayer.magnificationFilter = .nearest   // crisp pixels for pixel art
+        spriteLayer.anchorPoint = CGPoint(x: 0.5, y: 0)   // feet: scale grows up, tilt pivots here
+        container.addSublayer(spriteLayer)
+        return container
     }
 
     func show(_ cg: CGImage?) {
-        wantsLayer = true
-        layer?.contents = cg
+        // Disable the implicit ~0.25s cross-fade Core Animation adds on `contents`.
+        // This is our own sublayer (not NSView's auto-backing layer), so it doesn't
+        // inherit the view delegate's "no implicit animation" behaviour — without this
+        // the per-frame sprite swaps fade into each other and the animation looks frozen.
+        CATransaction.begin(); CATransaction.setDisableActions(true)
+        spriteLayer.contents = cg
+        CATransaction.commit()
+    }
+
+    // Place the sprite's natural (untransformed) box inside the padded window.
+    // `rect` is in view coords (origin bottom-left, since isFlipped == false).
+    func layoutSprite(rect: CGRect) {
+        CATransaction.begin(); CATransaction.setDisableActions(true)
+        spriteLayer.bounds = CGRect(x: 0, y: 0, width: rect.width, height: rect.height)
+        spriteLayer.position = CGPoint(x: rect.midX, y: rect.minY)   // anchor (0.5,0) -> feet
+        CATransaction.commit()
+    }
+
+    // Squash/stretch (sx, sy) + lean (rot in radians) about the feet anchor.
+    func setDeform(sx: CGFloat, sy: CGFloat, rot: CGFloat) {
+        CATransaction.begin(); CATransaction.setDisableActions(true)
+        var t = CATransform3DMakeScale(sx, sy, 1)
+        t = CATransform3DRotate(t, rot, 0, 0, 1)
+        spriteLayer.transform = t
+        CATransaction.commit()
     }
 
     // Drag to move / toss. The grabbing (closed-hand) cursor is set here because
@@ -683,13 +719,29 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     // toss physics
     var dragging = false
     var didMove  = false
+    var dragUnpinned = false
     var px: CGFloat = 0, py: CGFloat = 0
     var vx: CGFloat = 0, vy: CGFloat = 0
     var thrown = false   // in gravity flight after a real toss (vs. gentle drop)
+    var settlingDrop = false
+    var settleTargetY: CGFloat = 0
     var anchorX: CGFloat = 0, anchorY: CGFloat = 0
     var grabDX: CGFloat = 0, grabDY: CGFloat = 0
     var physicsTimer: Timer?
     let physDT: CGFloat = 1.0 / 60.0
+
+    // Procedural deformation layer (always-on tick while awake).
+    var tickTimer: Timer?
+    var breathPhase: CGFloat = 0
+    var springS: CGFloat = 0      // impact squash displacement (+ = squashed)
+    var springV: CGFloat = 0
+    var tiltDeg: CGFloat = 0      // current lean, eased toward target
+    let BREATH_AMP: CGFloat = 0.025, BREATH_SPEED: CGFloat = 1.6
+    let SS_FORCE: CGFloat = 0.10,  SS_REF: CGFloat = 900      // velocity stretch
+    let SPRING_K: CGFloat = 180,   SPRING_DAMP: CGFloat = 18, SPRING_IMPACT: CGFloat = 0.22
+    let DEFORM_MIN_SX: CGFloat = 0.94, DEFORM_MAX_SX: CGFloat = 1.10
+    let DEFORM_MIN_SY: CGFloat = 0.84, DEFORM_MAX_SY: CGFloat = 1.12
+    let TILT_MAX: CGFloat = 12,    TILT_REF: CGFloat = 600    // degrees, px/s
     var tossing: Bool { physicsTimer != nil }
     var facingLeft = false   // mirror toss/squat frames toward direction of motion
 
@@ -728,11 +780,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         applyScale()
         refreshDisplay(force: true)
         updateWander()
+        startTick()
         Timer.scheduledTimer(withTimeInterval: 0.2, repeats: true) { [weak self] _ in self?.poll() }
     }
 
     func buildPetWindow() {
         view = PetView(); view.owner = self
+        view.wantsLayer = true   // materialize the backing layer + spriteLayer now
         window = PetWindow(contentRect: NSRect(x: 0, y: 0, width: 100, height: 100),
                            styleMask: .borderless, backing: .buffered, defer: false)
         window.isOpaque = false
@@ -786,24 +840,46 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     // MARK: scale / position
 
+    // Sprite pixel size at the current scale.
+    func spriteSizePx() -> CGSize {
+        CGSize(width: CGFloat(sprite.frameW) * config.scale,
+               height: CGFloat(sprite.frameH) * config.scale)
+    }
+
+    // Padded window size = sprite plus transparent margins.
+    func windowSizePx() -> CGSize {
+        let s = spriteSizePx()
+        return CGSize(width:  s.width  * (1 + 2 * PAD_SIDE),
+                      height: s.height * (1 + PAD_TOP + PAD_BOTTOM))
+    }
+
+    // The sprite's natural box within the window (origin bottom-left).
+    func visualRectInWindow() -> CGRect {
+        let s = spriteSizePx()
+        return CGRect(x: PAD_SIDE * s.width, y: PAD_BOTTOM * s.height,
+                      width: s.width, height: s.height)
+    }
+
     func applyScale() {
-        let w = CGFloat(sprite.frameW) * config.scale
-        let h = CGFloat(sprite.frameH) * config.scale
+        let win = windowSizePx()
         let screen = NSScreen.main?.visibleFrame ?? NSRect(x: 0, y: 0, width: 1440, height: 900)
-        let x = config.x ?? (screen.maxX - w - 24)
+        let x = config.x ?? (screen.maxX - win.width - 24)
         let y = config.y ?? (screen.minY + 24)
-        window.setFrame(NSRect(x: x, y: y, width: w, height: h), display: true)
+        window.setFrame(NSRect(x: x, y: y, width: win.width, height: win.height), display: true)
+        view.layoutSprite(rect: visualRectInWindow())
         repositionBubble()
     }
 
     func nudgeScale(_ delta: CGFloat) {
         config.scale = max(0.5, min(8.0, config.scale + delta))
         let center = NSPoint(x: window.frame.midX, y: window.frame.midY)
-        let w = CGFloat(sprite.frameW) * config.scale
-        let h = CGFloat(sprite.frameH) * config.scale
-        window.setFrame(NSRect(x: center.x - w/2, y: center.y - h/2, width: w, height: h), display: true)
+        let win = windowSizePx()
+        window.setFrame(NSRect(x: center.x - win.width/2, y: center.y - win.height/2,
+                               width: win.width, height: win.height), display: true)
         config.x = window.frame.origin.x; config.y = window.frame.origin.y
-        config.save(); repositionBubble()
+        config.save()
+        view.layoutSprite(rect: visualRectInWindow())
+        repositionBubble()
     }
 
     // MARK: settings
@@ -855,37 +931,61 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     // MARK: interaction
 
-    func jumpFrame(for verticalVelocity: CGFloat) -> Int {
-        if abs(verticalVelocity) < 30 { return 0 }
-        if verticalVelocity > 260 { return 4 }
-        if verticalVelocity > 90  { return 3 }
-        if verticalVelocity > 30  { return 2 }
-        return 1
-    }
-
     func beginDrag(grab: NSPoint) {
-        dragging = true; didMove = false
+        sleepAfterTimer?.invalidate(); sleepAfterTimer = nil
+        dragging = true; didMove = false; dragUnpinned = false
         px = window.frame.origin.x; py = window.frame.origin.y
         anchorX = px; anchorY = py
         grabDX = grab.x; grabDY = grab.y
-        vx = 0; vy = 0; thrown = false
-        startPhysics(); refreshDisplay(); updateWander()
+        vx = 0; vy = 0; thrown = false; settlingDrop = false
+        startTick()   // a sleeping pet has its deform tick paused — wake it so the grab/toss still stretches
+        startPhysics(); refreshDisplay(); showTossFrame(); updateWander()
     }
 
     func dragTo(mouse: NSPoint) {
         anchorX = mouse.x - grabDX; anchorY = mouse.y - grabDY
-        if abs(anchorX - px) > 2 || abs(anchorY - py) > 2 { didMove = true }
+        if abs(anchorX - px) > 2 || abs(anchorY - py) > 2 {
+            didMove = true
+            if !dragUnpinned {
+                dragUnpinned = true
+                showTossFrame()
+            }
+        }
     }
 
     func releaseDrag() {
         dragging = false
-        // A real toss (let go while still moving) enters gravity flight; a gentle
-        // placement (let go nearly still) just stays where it was dropped.
+        // A real toss enters gravity flight. A gentle placement gets a short
+        // local settle drop before it pins to the new spot.
         let launch: CGFloat = 150
         let launchVelocityScale: CGFloat = 0.45
         thrown = hypot(vx, vy) >= launch
-        if thrown { vx *= launchVelocityScale; vy *= launchVelocityScale }   // soften the throw — don't fling it across the screen
-        else      { vx = 0; vy = 0 }
+        settlingDrop = false
+        if thrown {
+            vx *= launchVelocityScale; vy *= launchVelocityScale   // soften the throw — don't fling it across the screen
+        } else if didMove {
+            beginSettleDrop()
+        } else {
+            vx = 0; vy = 0
+        }
+    }
+
+    func floorLimit() -> CGFloat? {
+        guard let vis = NSScreen.main?.visibleFrame else { return nil }
+        return vis.minY - visualRectInWindow().minY
+    }
+
+    func beginSettleDrop() {
+        settlingDrop = true
+        let drop = max(10, min(24, spriteSizePx().height * 0.18))
+        let floor = floorLimit() ?? -CGFloat.greatestFiniteMagnitude
+        settleTargetY = max(floor, py - drop)
+        vx *= 0.15
+        vy = min(vy, -120)
+        if abs(py - settleTargetY) < 1 {
+            settlingDrop = false
+            vx = 0; vy = 0
+        }
     }
 
     func startPhysics() {
@@ -909,6 +1009,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             let gravity: CGFloat = 3800, airDrag: CGFloat = 0.99
             vy -= gravity * dt
             vx *= airDrag
+        } else if settlingDrop {
+            let gravity: CGFloat = 1400
+            vy -= gravity * dt
+            vx *= 0.78
         } else {
             vx *= 0.82; vy *= 0.82
         }
@@ -917,44 +1021,73 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         px += vx * dt; py += vy * dt
 
         var onFloor = true
+        let rect = visualRectInWindow()          // sprite box within the padded window
+        let s = spriteSizePx()
         if let vis = NSScreen.main?.visibleFrame {
-            let w = window.frame.width, h = window.frame.height
-            let bounce: CGFloat = 0.5                 // restitution off the edges
-            if px < vis.minX     { px = vis.minX;     vx =  abs(vx) * bounce }
-            if px > vis.maxX - w { px = vis.maxX - w; vx = -abs(vx) * bounce }
-            if py > vis.maxY - h { py = vis.maxY - h; vy = -abs(vy) * bounce }
-            if py < vis.minY {                        // land on the floor (no bounce)
-                py = vis.minY
+            let bounce: CGFloat = 0.5            // restitution off the edges
+            let leftLimit  = vis.minX - rect.minX
+            let rightLimit = vis.maxX - rect.minX - s.width
+            let floorLimit = vis.minY - rect.minY
+            let topLimit   = vis.maxY - rect.minY - s.height
+            if px < leftLimit  { px = leftLimit;  vx =  abs(vx) * bounce }
+            if px > rightLimit { px = rightLimit; vx = -abs(vx) * bounce }
+            if py > topLimit   { py = topLimit;   vy = -abs(vy) * bounce }
+            if py < floorLimit {                 // land on the floor (no bounce)
+                if vy < -30 { springV += SPRING_IMPACT * (-vy) * 0.012 }   // impact -> squash
+                py = floorLimit
                 vy = 0
-                vx *= 0.78                            // ground friction while skidding to rest
+                vx *= 0.78                        // ground friction while skidding to rest
+                if settlingDrop { settleTargetY = floorLimit }
             }
-            onFloor = py <= vis.minY + 1
+            onFloor = py <= floorLimit + 1
+        }
+
+        let settledDrop = settlingDrop && py <= settleTargetY
+        if settledDrop {
+            py = settleTargetY
+            if vy < -30 { springV += SPRING_IMPACT * min(-vy, 260) * 0.006 }
+            vx = 0; vy = 0
         }
 
         window.setFrameOrigin(NSPoint(x: px, y: py))
-        // Face the direction of horizontal motion (= toward the cursor while
-        // dragging, = throw direction in flight). Hysteresis avoids flicker.
+        // Face the direction of horizontal motion. Hysteresis avoids flicker.
         if vx < -40 { facingLeft = true }
         else if vx > 40 { facingLeft = false }
-        let col = jumpFrame(for: vy)
-        view.show(sprite.frame(row: JUMP_ROW, col: col, flipped: facingLeft))
+        showTossFrame()
         repositionBubble()
 
         // A toss keeps going until it has come to rest on the floor; a gentle
         // drop (not thrown) settles the moment it's nearly still.
-        if !dragging && abs(vx) < 8 && abs(vy) < 25 && (!thrown || onFloor) {
+        if settledDrop || (!dragging && abs(vx) < 8 && abs(vy) < 25 && (!thrown || onFloor)) {
             stopPhysics()
         }
     }
 
     func stopPhysics() {
         physicsTimer?.invalidate(); physicsTimer = nil
-        vx = 0; vy = 0; thrown = false
+        vx = 0; vy = 0; thrown = false; settlingDrop = false; dragUnpinned = false
         if didMove {
             config.x = window.frame.origin.x; config.y = window.frame.origin.y
             config.save()
         }
+        if asleep { stopTick() }
         refreshDisplay(); updateWander()
+    }
+
+    func tossFrameColumn() -> Int {
+        if dragging {
+            if !dragUnpinned { return 0 }
+            let movingUpDiagonal = vy > 80 && abs(vx) > 50
+            return movingUpDiagonal ? 4 : 2
+        }
+        if vy < -120 { return 1 }
+        return 2
+    }
+
+    func showTossFrame() {
+        // Mouse-down starts pinned/crouched; actual movement makes it unpinned
+        // and airborne. Use a jump pose only for deliberate upward diagonal movement.
+        view.show(sprite.frame(row: JUMP_ROW, col: tossFrameColumn(), flipped: facingLeft))
     }
 
     // MARK: polling (single event.json — merges state + bubble)
@@ -975,6 +1108,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             asleep = sleep
             window.animator().alphaValue = sleep ? 0.45 : 1.0   // dim = "asleep"
             updateWander()
+            if sleep { stopTick() } else { startTick() }        // pause deformation while asleep
         }
         if let s = obj["state"] as? String { setAgentState(s) }
 
@@ -989,6 +1123,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 self.hasCard = false
                 self.bubbleWindow.orderOut(nil); self.stopSpinner()
                 self.updateWander()
+                self.stopTick()
             }
         }
 
@@ -1123,6 +1258,57 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     func stopBehavior() {
         idleScheduleTimer?.invalidate(); behaviorTimer?.invalidate()
         if behaviorState != nil { behaviorState = nil; refreshDisplay() }
+    }
+
+    // MARK: procedural deformation tick (60 Hz while awake)
+
+    func startTick() {
+        if tickTimer != nil { return }
+        tickTimer = Timer.scheduledTimer(withTimeInterval: 1.0 / 60.0, repeats: true) { [weak self] _ in
+            self?.proceduralStep()
+        }
+    }
+
+    func stopTick() {
+        tickTimer?.invalidate(); tickTimer = nil
+        view.setDeform(sx: 1, sy: 1, rot: 0)   // rest at identity so a sleeping pet isn't mid-squash
+    }
+
+    func proceduralStep() {
+        let dt = physDT
+
+        // Impact spring (always integrating; rings down to zero on its own).
+        springV += (-SPRING_K * springS - SPRING_DAMP * springV) * dt
+        springS += springV * dt
+        springS = max(-0.16, min(0.16, springS))
+        breathPhase += dt
+
+        var sx: CGFloat = 1, sy: CGFloat = 1
+
+        // Breathing: idle state only, when settled.
+        let settled = !tossing && abs(vx) < 25 && abs(vy) < 25
+        if playing == "idle" && settled {
+            let b = sin(breathPhase * BREATH_SPEED) * BREATH_AMP
+            sy *= 1 + b; sx *= 1 - b * 0.6
+        }
+
+        // Velocity stretch: the whole toss (held + in flight). The frame is held stable,
+        // so this continuous stretch is what conveys vertical motion.
+        if tossing {
+            let st = min(abs(vy) / SS_REF, 1) * SS_FORCE
+            sy *= 1 + st; sx *= 1 - st * 0.5
+        }
+
+        // Impact squash.
+        sy *= 1 - springS; sx *= 1 + springS * 0.6
+        sx = max(DEFORM_MIN_SX, min(DEFORM_MAX_SX, sx))
+        sy = max(DEFORM_MIN_SY, min(DEFORM_MAX_SY, sy))
+
+        // Lean into horizontal velocity, eased — during the toss, upright at rest.
+        let target = tossing ? max(-TILT_MAX, min(TILT_MAX, vx * (TILT_MAX / TILT_REF))) : 0
+        tiltDeg += (target - tiltDeg) * min(1, dt * 12)
+
+        view.setDeform(sx: sx, sy: sy, rot: tiltDeg * .pi / 180)
     }
 
     func resolvedState() -> String {

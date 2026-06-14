@@ -19,16 +19,23 @@
 import sys, os, json, time
 
 EVENT = sys.argv[1] if len(sys.argv) > 1 else ""
-PETPET = os.path.join(os.path.expanduser("~"), "Code/petpet")
-SESS_PATH = os.path.join(PETPET, "session.json")
-EVENT_PATH = os.path.join(PETPET, "event.json")
-STATES_PATH = os.path.join(PETPET, "states.json")
+DATA_DIR = os.path.join(os.path.expanduser("~"), ".petpet")
+SESS_PATH = os.path.join(DATA_DIR, "session.json")
+EVENT_PATH = os.path.join(DATA_DIR, "event.json")
+STATES_PATH = os.path.join(DATA_DIR, "states.json")
 HOME = os.path.expanduser("~")
 GRACE = 6.0       # seconds a finished session lingers on "Готово" before sleeping
 READY_GRACE = 4.0 # seconds a just-started session greets before it stops winning
+STALE = 600.0     # a session silent this long can no longer win the bubble. Self-heals a
+                  # session abandoned mid-"working" (terminal killed/crashed → no stop/
+                  # session-end fired) instead of leaving the pet stuck on "Выполняю".
+                  # Live sessions refresh ts on every hook event, so this never trips them.
+PRUNE = 3600.0    # drop sessions silent this long entirely, so dead ones don't accumulate.
 
-if os.path.exists(os.path.join(PETPET, "hooks-disabled")):
+if os.path.exists(os.path.join(DATA_DIR, "hooks-disabled")):
     sys.exit(0)
+
+os.makedirs(DATA_DIR, exist_ok=True)
 
 payload = {}
 try:
@@ -121,6 +128,15 @@ def save_sessions(d):
 
 sess = load_sessions()
 S = sess["sessions"]
+
+# Drop sessions that have been silent past PRUNE — dead ones (terminals closed without
+# a session-end) otherwise pile up in the file forever. The current SID is exempt: it's
+# about to be re-rendered with a fresh ts below.
+_now = time.time()
+for _sid in [k for k, v in S.items() if k != SID and (_now - v.get("ts", 0)) >= PRUNE]:
+    S.pop(_sid, None)
+if sess.get("active") not in S:
+    sess["active"] = max(S, key=lambda k: S[k].get("ts", 0)) if S else None
 
 
 def rec(sid):
@@ -259,6 +275,10 @@ save_sessions(sess)
 
 def tier(r):
     # higher = more deserving of the bubble. finished decays to idle after GRACE.
+    # A session that's gone silent past STALE can't win at all — guards against one
+    # abandoned mid-work (no stop/session-end) holding the bubble on "Выполняю" forever.
+    if (time.time() - r.get("ts", 0)) >= STALE:
+        return 0
     ph = r.get("phase", "idle")
     if ph == "waiting":  return 4
     if ph == "working":  return 3

@@ -12,10 +12,15 @@
 #   petpetctl build            recompile from source
 #   petpetctl pets             list installed pets
 
-DIR="$HOME/Code/petpet"
-BIN="$DIR/petpet"
-CONFIG="$DIR/config.json"
-EVENT="$DIR/event.json"
+DIR="$(cd "$(dirname "$0")" && pwd)"
+DATA="$HOME/.petpet"
+BIN="$DATA/petpet"   # build output is a per-machine artifact — lives with the rest of the runtime state, not in the source tree
+CONFIG="$DATA/config.json"
+EVENT="$DATA/event.json"
+LABEL="local.petpet"
+PLIST="$DATA/$LABEL.plist"
+
+mkdir -p "$DATA"
 
 set_json_key() {  # set_json_key <key> <raw-json-value>
   python3 - "$CONFIG" "$1" "$2" <<'PY'
@@ -34,19 +39,48 @@ json.dump(obj, open(path, "w"), indent=2)
 PY
 }
 
+launch_domain() {
+  printf 'gui/%s' "$(id -u)"
+}
+
+write_launchd_plist() {
+  cat > "$PLIST" <<EOF
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>$LABEL</string>
+  <key>ProgramArguments</key>
+  <array>
+    <string>$BIN</string>
+  </array>
+  <key>RunAtLoad</key>
+  <true/>
+  <key>StandardOutPath</key>
+  <string>/tmp/petpet.log</string>
+  <key>StandardErrorPath</key>
+  <string>/tmp/petpet.log</string>
+</dict>
+</plist>
+EOF
+}
+
 is_running() {
-  pgrep -x "$(basename "$BIN")" >/dev/null 2>&1
+  launchctl print "$(launch_domain)/$LABEL" 2>/dev/null | grep -q 'pid = '
 }
 
 stop_running() {
-  pkill -x "$(basename "$BIN")" 2>/dev/null
+  launchctl bootout "$(launch_domain)/$LABEL" >/dev/null 2>&1
 }
 
 case "$1" in
   start)
     if is_running; then echo "already running"; exit 0; fi
     [ -x "$BIN" ] || { echo "binary missing — run: petpetctl build"; exit 1; }
-    nohup "$BIN" </dev/null >/tmp/petpet.log 2>&1 &
+    write_launchd_plist
+    stop_running
+    launchctl bootstrap "$(launch_domain)" "$PLIST" >/dev/null 2>&1
     sleep 0.5
     is_running && echo "started" || { echo "failed; see /tmp/petpet.log"; cat /tmp/petpet.log; }
     ;;
@@ -90,7 +124,7 @@ case "$1" in
       cd "$DIR" && nohup python3 petpet-editor.py "$PORT" >/tmp/petpet-editor.log 2>&1 &
       sleep 0.5
     fi
-    URL="http://localhost:$PORT/state-editor.html"
+    URL="http://localhost:$PORT/web/state-editor.html"
     echo "editor -> $URL"
     open "$URL" 2>/dev/null || true
     ;;
@@ -98,11 +132,10 @@ case "$1" in
     # build to a temp file + mv into place so the binary gets a FRESH inode.
     # Rebuilding in place keeps the old inode, and the kernel's cached code
     # signature then mismatches → launchd kills it with OS_REASON_CODESIGNING.
-    cd "$DIR" \
-      && swiftc -O PetPet.swift -o petpet.tmp \
-      && codesign -s - --force petpet.tmp \
-      && mv -f petpet.tmp petpet \
-      && echo "built + signed" || { echo "build failed"; rm -f "$DIR/petpet.tmp"; }
+    swiftc -O "$DIR/PetPet.swift" -o "$DATA/petpet.tmp" \
+      && codesign -s - --force "$DATA/petpet.tmp" \
+      && mv -f "$DATA/petpet.tmp" "$BIN" \
+      && echo "built + signed -> $BIN" || { echo "build failed"; rm -f "$DATA/petpet.tmp"; }
     ;;
   pets)
     for d in "$HOME/.codex/pets"/*/ "$HOME/.petdex/pets"/*/; do

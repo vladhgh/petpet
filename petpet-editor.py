@@ -6,8 +6,8 @@
 #                       its next event, so edits take effect on the next tool call
 #   POST /api/event   → overwrite event.json — pushes a one-shot preview straight
 #                       to the running pet (it polls event.json every 0.2s)
-# Everything else is served as static files from the repo dir (so /state-editor
-# .html, /sprite-viewer.html and /pets/<slug>/spritesheet.webp all just work).
+# Everything else is served as static files from the repo dir (so /web/state-
+# editor.html, /web/sprite-viewer.html and /pets/<slug>/spritesheet.webp all work).
 #
 # Single-user localhost tool: bound to 127.0.0.1, no auth, intentionally tiny.
 
@@ -16,8 +16,10 @@ from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import unquote
 
 ROOT = os.path.dirname(os.path.abspath(__file__))
-STATES_PATH = os.path.join(ROOT, "states.json")
-EVENT_PATH = os.path.join(ROOT, "event.json")
+DATA_DIR = os.path.join(os.path.expanduser("~"), ".petpet")
+STATES_PATH = os.path.join(DATA_DIR, "states.json")
+EVENT_PATH = os.path.join(DATA_DIR, "event.json")
+os.makedirs(DATA_DIR, exist_ok=True)
 PORT = int(sys.argv[1]) if len(sys.argv) > 1 else 7892
 PET_BASES = [
     os.path.join(os.path.expanduser("~"), ".codex", "pets"),
@@ -107,7 +109,7 @@ class Handler(SimpleHTTPRequestHandler):
 if __name__ == "__main__":
     os.chdir(ROOT)
     httpd = ThreadingHTTPServer(("127.0.0.1", PORT), Handler)
-    print(f"petpet-editor on http://localhost:{PORT}/state-editor.html")
+    print(f"petpet-editor on http://localhost:{PORT}/web/state-editor.html")
     try:
         httpd.serve_forever()
     except KeyboardInterrupt:
