@@ -206,19 +206,42 @@ final class PetWindow: NSWindow {
 final class PetView: NSView {
     weak var owner: AppDelegate?
 
+    // The sprite is drawn into this owned sublayer (not the view's backing layer) so we
+    // can anchor it at the feet and apply a deformation transform every frame without
+    // AppKit resetting the geometry on layout. The backing layer stays a plain container.
+    let spriteLayer = CALayer()
+
     override var isFlipped: Bool { false }
 
-    // Layer is configured once here — contentsGravity and magnificationFilter never change per frame.
     override func makeBackingLayer() -> CALayer {
-        let l = CALayer()
-        l.contentsGravity = .resizeAspect
-        l.magnificationFilter = .nearest   // crisp pixels; faster than trilinear for pixel art
-        return l
+        let container = CALayer()
+        spriteLayer.contentsGravity = .resizeAspect
+        spriteLayer.magnificationFilter = .nearest   // crisp pixels for pixel art
+        spriteLayer.anchorPoint = CGPoint(x: 0.5, y: 0)   // feet: scale grows up, tilt pivots here
+        container.addSublayer(spriteLayer)
+        return container
     }
 
     func show(_ cg: CGImage?) {
-        wantsLayer = true
-        layer?.contents = cg
+        spriteLayer.contents = cg
+    }
+
+    // Place the sprite's natural (untransformed) box inside the padded window.
+    // `rect` is in view coords (origin bottom-left, since isFlipped == false).
+    func layoutSprite(rect: CGRect) {
+        CATransaction.begin(); CATransaction.setDisableActions(true)
+        spriteLayer.bounds = CGRect(x: 0, y: 0, width: rect.width, height: rect.height)
+        spriteLayer.position = CGPoint(x: rect.midX, y: rect.minY)   // anchor (0.5,0) -> feet
+        CATransaction.commit()
+    }
+
+    // Squash/stretch (sx, sy) + lean (rot in radians) about the feet anchor.
+    func setDeform(sx: CGFloat, sy: CGFloat, rot: CGFloat) {
+        CATransaction.begin(); CATransaction.setDisableActions(true)
+        var t = CATransform3DMakeScale(sx, sy, 1)
+        t = CATransform3DRotate(t, rot, 0, 0, 1)
+        spriteLayer.transform = t
+        CATransaction.commit()
     }
 
     // Drag to move / toss. The grabbing (closed-hand) cursor is set here because
@@ -733,6 +756,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     func buildPetWindow() {
         view = PetView(); view.owner = self
+        view.wantsLayer = true   // materialize the backing layer + spriteLayer now
         window = PetWindow(contentRect: NSRect(x: 0, y: 0, width: 100, height: 100),
                            styleMask: .borderless, backing: .buffered, defer: false)
         window.isOpaque = false
