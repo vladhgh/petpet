@@ -768,6 +768,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         applyScale()
         refreshDisplay(force: true)
         updateWander()
+        startTick()
         Timer.scheduledTimer(withTimeInterval: 0.2, repeats: true) { [weak self] _ in self?.poll() }
     }
 
@@ -1035,6 +1036,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             asleep = sleep
             window.animator().alphaValue = sleep ? 0.45 : 1.0   // dim = "asleep"
             updateWander()
+            if sleep { stopTick() } else { startTick() }        // pause deformation while asleep
         }
         if let s = obj["state"] as? String { setAgentState(s) }
 
@@ -1049,6 +1051,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 self.hasCard = false
                 self.bubbleWindow.orderOut(nil); self.stopSpinner()
                 self.updateWander()
+                self.stopTick()
             }
         }
 
