@@ -1,10 +1,10 @@
 # AGENTS.md
 
-This file provides guidance to Codex (Codex.ai/code) when working with code in this repository.
+This file provides guidance to coding agents (Claude Code, Codex, etc.) when working with code in this repository. `CLAUDE.md` is a symlink to this file — edit this one.
 
 ## What this is
 
-PetPet is a personal macOS desktop mascot: a tiny floating sprite that animates to reflect what a Codex session is doing. It's a single-user hobby project — keep changes small and direct, don't add abstraction or config layers it doesn't need.
+PetPet is a personal macOS desktop mascot: a tiny floating sprite that animates to reflect what a coding-agent session is doing. It's a single-user hobby project — keep changes small and direct, don't add abstraction or config layers it doesn't need.
 
 ## Commands
 
@@ -33,7 +33,7 @@ Two halves that communicate **only through JSON files** in `~/.petpet/` — no s
 
 1. **`PetPet.swift`** — the whole GUI app (AppKit, single file, ~1200 lines). It polls the JSON files every 0.2s by mtime and renders. It never writes state files; it only reads them (plus `config.json`, which it owns).
 
-2. **`petpet-hook.py`** — translates Codex hook events into mascot state. `settings.json` invokes it directly (`python3 petpet-hook.py <event>`) with a stable event name (`user-prompt`, `pre`, `post`, `notify`, `stop`, `session-start`, `session-end`) as its only argument; the event's JSON payload arrives on stdin. The hooks are wired in `~/.codex/settings.json`, not in this repo.
+2. **`petpet-hook.py`** — translates the coding agent's hook events into mascot state. `settings.json` invokes it directly (`python3 petpet-hook.py <event>`) with a stable event name (`user-prompt`, `pre`, `post`, `notify`, `stop`, `session-start`, `session-end`) as its only argument; the event's JSON payload arrives on stdin. The hooks are wired in the agent's settings (`~/.claude/settings.json` or `~/.codex/settings.json`), not in this repo.
 
 ### The JSON contract (how the two halves meet)
 
