@@ -229,7 +229,13 @@ final class PetView: NSView {
     }
 
     func show(_ cg: CGImage?) {
+        // Disable the implicit ~0.25s cross-fade Core Animation adds on `contents`.
+        // This is our own sublayer (not NSView's auto-backing layer), so it doesn't
+        // inherit the view delegate's "no implicit animation" behaviour — without this
+        // the per-frame sprite swaps fade into each other and the animation looks frozen.
+        CATransaction.begin(); CATransaction.setDisableActions(true)
         spriteLayer.contents = cg
+        CATransaction.commit()
     }
 
     // Place the sprite's natural (untransformed) box inside the padded window.
