@@ -119,6 +119,13 @@ let COLS = 8
 let ROWS = 9
 let JUMP_ROW = 4
 
+// Transparent padding around the sprite inside the pet window, as fractions of the
+// sprite's pixel size. The window hard-clips, so deformation needs this headroom:
+// top for stretch + spring overshoot, sides for the 12-degree tilt about the feet.
+let PAD_TOP: CGFloat = 0.55
+let PAD_BOTTOM: CGFloat = 0.12
+let PAD_SIDE: CGFloat = 0.32
+
 func uniform(_ row: Int, _ count: Int, _ dur: Double, _ last: Double) -> AnimSpec {
     var f: [FrameSpec] = []
     for c in 0..<count {
@@ -810,24 +817,46 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     // MARK: scale / position
 
+    // Sprite pixel size at the current scale.
+    func spriteSizePx() -> CGSize {
+        CGSize(width: CGFloat(sprite.frameW) * config.scale,
+               height: CGFloat(sprite.frameH) * config.scale)
+    }
+
+    // Padded window size = sprite plus transparent margins.
+    func windowSizePx() -> CGSize {
+        let s = spriteSizePx()
+        return CGSize(width:  s.width  * (1 + 2 * PAD_SIDE),
+                      height: s.height * (1 + PAD_TOP + PAD_BOTTOM))
+    }
+
+    // The sprite's natural box within the window (origin bottom-left).
+    func visualRectInWindow() -> CGRect {
+        let s = spriteSizePx()
+        return CGRect(x: PAD_SIDE * s.width, y: PAD_BOTTOM * s.height,
+                      width: s.width, height: s.height)
+    }
+
     func applyScale() {
-        let w = CGFloat(sprite.frameW) * config.scale
-        let h = CGFloat(sprite.frameH) * config.scale
+        let win = windowSizePx()
         let screen = NSScreen.main?.visibleFrame ?? NSRect(x: 0, y: 0, width: 1440, height: 900)
-        let x = config.x ?? (screen.maxX - w - 24)
+        let x = config.x ?? (screen.maxX - win.width - 24)
         let y = config.y ?? (screen.minY + 24)
-        window.setFrame(NSRect(x: x, y: y, width: w, height: h), display: true)
+        window.setFrame(NSRect(x: x, y: y, width: win.width, height: win.height), display: true)
+        view.layoutSprite(rect: visualRectInWindow())
         repositionBubble()
     }
 
     func nudgeScale(_ delta: CGFloat) {
         config.scale = max(0.5, min(8.0, config.scale + delta))
         let center = NSPoint(x: window.frame.midX, y: window.frame.midY)
-        let w = CGFloat(sprite.frameW) * config.scale
-        let h = CGFloat(sprite.frameH) * config.scale
-        window.setFrame(NSRect(x: center.x - w/2, y: center.y - h/2, width: w, height: h), display: true)
+        let win = windowSizePx()
+        window.setFrame(NSRect(x: center.x - win.width/2, y: center.y - win.height/2,
+                               width: win.width, height: win.height), display: true)
         config.x = window.frame.origin.x; config.y = window.frame.origin.y
-        config.save(); repositionBubble()
+        config.save()
+        view.layoutSprite(rect: visualRectInWindow())
+        repositionBubble()
     }
 
     // MARK: settings
