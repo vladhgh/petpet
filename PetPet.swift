@@ -720,6 +720,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     var grabDX: CGFloat = 0, grabDY: CGFloat = 0
     var physicsTimer: Timer?
     let physDT: CGFloat = 1.0 / 60.0
+
+    // Procedural deformation layer (always-on tick while awake).
+    var tickTimer: Timer?
+    var breathPhase: CGFloat = 0
+    var springS: CGFloat = 0      // impact squash displacement (+ = squashed)
+    var springV: CGFloat = 0
+    var tiltDeg: CGFloat = 0      // current lean, eased toward target
+    let BREATH_AMP: CGFloat = 0.04, BREATH_SPEED: CGFloat = 1.6
+    let SS_FORCE: CGFloat = 0.22,  SS_REF: CGFloat = 700      // velocity stretch
+    let SPRING_K: CGFloat = 180,   SPRING_DAMP: CGFloat = 12, SPRING_IMPACT: CGFloat = 0.50
+    let TILT_MAX: CGFloat = 12,    TILT_REF: CGFloat = 600    // degrees, px/s
     var tossing: Bool { physicsTimer != nil }
     var facingLeft = false   // mirror toss/squat frames toward direction of motion
 
@@ -1176,6 +1187,52 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     func stopBehavior() {
         idleScheduleTimer?.invalidate(); behaviorTimer?.invalidate()
         if behaviorState != nil { behaviorState = nil; refreshDisplay() }
+    }
+
+    // MARK: procedural deformation tick (60 Hz while awake)
+
+    func startTick() {
+        if tickTimer != nil { return }
+        tickTimer = Timer.scheduledTimer(withTimeInterval: 1.0 / 60.0, repeats: true) { [weak self] _ in
+            self?.proceduralStep()
+        }
+    }
+
+    func stopTick() {
+        tickTimer?.invalidate(); tickTimer = nil
+        view.setDeform(sx: 1, sy: 1, rot: 0)   // rest at identity so a sleeping pet isn't mid-squash
+    }
+
+    func proceduralStep() {
+        let dt = physDT
+
+        // Impact spring (always integrating; rings down to zero on its own).
+        springV += (-SPRING_K * springS - SPRING_DAMP * springV) * dt
+        springS += springV * dt
+        springS = max(-0.6, min(0.6, springS))
+        breathPhase += dt
+
+        var sx: CGFloat = 1, sy: CGFloat = 1
+
+        // Breathing: idle state only, when settled.
+        let settled = !tossing && abs(vx) < 25 && abs(vy) < 25
+        if playing == "idle" && settled {
+            let b = sin(breathPhase * BREATH_SPEED) * BREATH_AMP
+            sy *= 1 + b; sx *= 1 - b * 0.6
+        }
+
+        // Velocity stretch: nonzero only while the physics velocity is nonzero (drag/toss).
+        let st = min(abs(vy) / SS_REF, 1) * SS_FORCE
+        sy *= 1 + st; sx *= 1 - st * 0.5
+
+        // Impact squash.
+        sy *= 1 - springS; sx *= 1 + springS * 0.6
+
+        // Lean into horizontal velocity, eased.
+        let target = max(-TILT_MAX, min(TILT_MAX, vx * (TILT_MAX / TILT_REF)))
+        tiltDeg += (target - tiltDeg) * min(1, dt * 12)
+
+        view.setDeform(sx: sx, sy: sy, rot: tiltDeg * .pi / 180)
     }
 
     func resolvedState() -> String {
