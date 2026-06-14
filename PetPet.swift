@@ -719,9 +719,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     // toss physics
     var dragging = false
     var didMove  = false
+    var dragUnpinned = false
     var px: CGFloat = 0, py: CGFloat = 0
     var vx: CGFloat = 0, vy: CGFloat = 0
     var thrown = false   // in gravity flight after a real toss (vs. gentle drop)
+    var settlingDrop = false
+    var settleTargetY: CGFloat = 0
     var anchorX: CGFloat = 0, anchorY: CGFloat = 0
     var grabDX: CGFloat = 0, grabDY: CGFloat = 0
     var physicsTimer: Timer?
@@ -733,9 +736,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     var springS: CGFloat = 0      // impact squash displacement (+ = squashed)
     var springV: CGFloat = 0
     var tiltDeg: CGFloat = 0      // current lean, eased toward target
-    let BREATH_AMP: CGFloat = 0.04, BREATH_SPEED: CGFloat = 1.6
-    let SS_FORCE: CGFloat = 0.22,  SS_REF: CGFloat = 700      // velocity stretch
-    let SPRING_K: CGFloat = 180,   SPRING_DAMP: CGFloat = 12, SPRING_IMPACT: CGFloat = 0.50
+    let BREATH_AMP: CGFloat = 0.025, BREATH_SPEED: CGFloat = 1.6
+    let SS_FORCE: CGFloat = 0.10,  SS_REF: CGFloat = 900      // velocity stretch
+    let SPRING_K: CGFloat = 180,   SPRING_DAMP: CGFloat = 18, SPRING_IMPACT: CGFloat = 0.22
+    let DEFORM_MIN_SX: CGFloat = 0.94, DEFORM_MAX_SX: CGFloat = 1.10
+    let DEFORM_MIN_SY: CGFloat = 0.84, DEFORM_MAX_SY: CGFloat = 1.12
     let TILT_MAX: CGFloat = 12,    TILT_REF: CGFloat = 600    // degrees, px/s
     var tossing: Bool { physicsTimer != nil }
     var facingLeft = false   // mirror toss/squat frames toward direction of motion
@@ -928,29 +933,59 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     func beginDrag(grab: NSPoint) {
         sleepAfterTimer?.invalidate(); sleepAfterTimer = nil
-        dragging = true; didMove = false
+        dragging = true; didMove = false; dragUnpinned = false
         px = window.frame.origin.x; py = window.frame.origin.y
         anchorX = px; anchorY = py
         grabDX = grab.x; grabDY = grab.y
-        vx = 0; vy = 0; thrown = false
+        vx = 0; vy = 0; thrown = false; settlingDrop = false
         startTick()   // a sleeping pet has its deform tick paused — wake it so the grab/toss still stretches
-        startPhysics(); refreshDisplay(); showTossFrame(held: true); updateWander()
+        startPhysics(); refreshDisplay(); showTossFrame(); updateWander()
     }
 
     func dragTo(mouse: NSPoint) {
         anchorX = mouse.x - grabDX; anchorY = mouse.y - grabDY
-        if abs(anchorX - px) > 2 || abs(anchorY - py) > 2 { didMove = true }
+        if abs(anchorX - px) > 2 || abs(anchorY - py) > 2 {
+            didMove = true
+            if !dragUnpinned {
+                dragUnpinned = true
+                showTossFrame()
+            }
+        }
     }
 
     func releaseDrag() {
         dragging = false
-        // A real toss (let go while still moving) enters gravity flight; a gentle
-        // placement (let go nearly still) just stays where it was dropped.
+        // A real toss enters gravity flight. A gentle placement gets a short
+        // local settle drop before it pins to the new spot.
         let launch: CGFloat = 150
         let launchVelocityScale: CGFloat = 0.45
         thrown = hypot(vx, vy) >= launch
-        if thrown { vx *= launchVelocityScale; vy *= launchVelocityScale }   // soften the throw — don't fling it across the screen
-        else      { vx = 0; vy = 0 }
+        settlingDrop = false
+        if thrown {
+            vx *= launchVelocityScale; vy *= launchVelocityScale   // soften the throw — don't fling it across the screen
+        } else if didMove {
+            beginSettleDrop()
+        } else {
+            vx = 0; vy = 0
+        }
+    }
+
+    func floorLimit() -> CGFloat? {
+        guard let vis = NSScreen.main?.visibleFrame else { return nil }
+        return vis.minY - visualRectInWindow().minY
+    }
+
+    func beginSettleDrop() {
+        settlingDrop = true
+        let drop = max(10, min(24, spriteSizePx().height * 0.18))
+        let floor = floorLimit() ?? -CGFloat.greatestFiniteMagnitude
+        settleTargetY = max(floor, py - drop)
+        vx *= 0.15
+        vy = min(vy, -120)
+        if abs(py - settleTargetY) < 1 {
+            settlingDrop = false
+            vx = 0; vy = 0
+        }
     }
 
     func startPhysics() {
@@ -974,6 +1009,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             let gravity: CGFloat = 3800, airDrag: CGFloat = 0.99
             vy -= gravity * dt
             vx *= airDrag
+        } else if settlingDrop {
+            let gravity: CGFloat = 1400
+            vy -= gravity * dt
+            vx *= 0.78
         } else {
             vx *= 0.82; vy *= 0.82
         }
@@ -998,27 +1037,35 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 py = floorLimit
                 vy = 0
                 vx *= 0.78                        // ground friction while skidding to rest
+                if settlingDrop { settleTargetY = floorLimit }
             }
             onFloor = py <= floorLimit + 1
+        }
+
+        let settledDrop = settlingDrop && py <= settleTargetY
+        if settledDrop {
+            py = settleTargetY
+            if vy < -30 { springV += SPRING_IMPACT * min(-vy, 260) * 0.006 }
+            vx = 0; vy = 0
         }
 
         window.setFrameOrigin(NSPoint(x: px, y: py))
         // Face the direction of horizontal motion. Hysteresis avoids flicker.
         if vx < -40 { facingLeft = true }
         else if vx > 40 { facingLeft = false }
-        showTossFrame(held: dragging)
+        showTossFrame()
         repositionBubble()
 
         // A toss keeps going until it has come to rest on the floor; a gentle
         // drop (not thrown) settles the moment it's nearly still.
-        if !dragging && abs(vx) < 8 && abs(vy) < 25 && (!thrown || onFloor) {
+        if settledDrop || (!dragging && abs(vx) < 8 && abs(vy) < 25 && (!thrown || onFloor)) {
             stopPhysics()
         }
     }
 
     func stopPhysics() {
         physicsTimer?.invalidate(); physicsTimer = nil
-        vx = 0; vy = 0; thrown = false
+        vx = 0; vy = 0; thrown = false; settlingDrop = false; dragUnpinned = false
         if didMove {
             config.x = window.frame.origin.x; config.y = window.frame.origin.y
             config.save()
@@ -1027,12 +1074,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         refreshDisplay(); updateWander()
     }
 
-    func showTossFrame(held: Bool) {
-        // Held in the cursor's grip → crouch (col 0); once in flight → airborne tuck (col 2).
-        // Each is a single stable frame; the deform tick adds the stretch/lean/landing-spring
-        // on top, so there's no per-frame jump cycling (which looked odd flicking past).
-        let col = held ? 0 : 2
-        view.show(sprite.frame(row: JUMP_ROW, col: col, flipped: facingLeft))
+    func tossFrameColumn() -> Int {
+        if dragging {
+            if !dragUnpinned { return 0 }
+            let movingUpDiagonal = vy > 80 && abs(vx) > 50
+            return movingUpDiagonal ? 4 : 2
+        }
+        if vy < -120 { return 1 }
+        return 2
+    }
+
+    func showTossFrame() {
+        // Mouse-down starts pinned/crouched; actual movement makes it unpinned
+        // and airborne. Use a jump pose only for deliberate upward diagonal movement.
+        view.show(sprite.frame(row: JUMP_ROW, col: tossFrameColumn(), flipped: facingLeft))
     }
 
     // MARK: polling (single event.json — merges state + bubble)
@@ -1225,7 +1280,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // Impact spring (always integrating; rings down to zero on its own).
         springV += (-SPRING_K * springS - SPRING_DAMP * springV) * dt
         springS += springV * dt
-        springS = max(-0.6, min(0.6, springS))
+        springS = max(-0.16, min(0.16, springS))
         breathPhase += dt
 
         var sx: CGFloat = 1, sy: CGFloat = 1
@@ -1246,6 +1301,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
         // Impact squash.
         sy *= 1 - springS; sx *= 1 + springS * 0.6
+        sx = max(DEFORM_MIN_SX, min(DEFORM_MAX_SX, sx))
+        sy = max(DEFORM_MIN_SY, min(DEFORM_MAX_SY, sy))
 
         // Lean into horizontal velocity, eased — during the toss, upright at rest.
         let target = tossing ? max(-TILT_MAX, min(TILT_MAX, vx * (TILT_MAX / TILT_REF))) : 0
