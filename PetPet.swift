@@ -727,11 +727,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     var settleTargetY: CGFloat = 0
     var anchorX: CGFloat = 0, anchorY: CGFloat = 0
     var grabDX: CGFloat = 0, grabDY: CGFloat = 0
-    var physicsTimer: Timer?
-    let physDT: CGFloat = 1.0 / 60.0
+    var physicsActive = false
+    let MAX_DT: CGFloat = 1.0 / 30.0   // clamp dt so one dropped frame can't make physics jump
 
-    // Procedural deformation layer (always-on tick while awake).
-    var tickTimer: Timer?
+    // Animation driver. Physics + deformation both run off ONE CADisplayLink, not
+    // NSTimers: this process is an .accessory app whose NSTimers macOS coalesces down
+    // to ~23 Hz, which (with a fixed timestep) made drags/tosses play in slow motion.
+    // A display link fires at the real refresh rate and is immune to that throttling.
+    var displayLink: CADisplayLink?
+    var lastFrameT: CFTimeInterval = 0
     var breathPhase: CGFloat = 0
     var springS: CGFloat = 0      // impact squash displacement (+ = squashed)
     var springV: CGFloat = 0
@@ -742,7 +746,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     let DEFORM_MIN_SX: CGFloat = 0.94, DEFORM_MAX_SX: CGFloat = 1.10
     let DEFORM_MIN_SY: CGFloat = 0.84, DEFORM_MAX_SY: CGFloat = 1.12
     let TILT_MAX: CGFloat = 12,    TILT_REF: CGFloat = 600    // degrees, px/s
-    var tossing: Bool { physicsTimer != nil }
+    var tossing: Bool { physicsActive }
     var facingLeft = false   // mirror toss/squat frames toward direction of motion
 
     // bubble state (raw values kept to rebuild on font change)
@@ -989,15 +993,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     func startPhysics() {
-        if physicsTimer != nil { return }
-        physicsTimer = Timer.scheduledTimer(withTimeInterval: Double(physDT), repeats: true) { [weak self] _ in
-            self?.physicsStep()
-        }
+        if physicsActive { return }
+        physicsActive = true
+        startTick()        // physics rides the deform display link; make sure it's running
         refreshDisplay()
     }
 
-    func physicsStep() {
-        let dt = physDT
+    func physicsStep(_ dt: CGFloat) {
         if dragging {
             let k: CGFloat = 620, damp: CGFloat = 26
             vx += (k * (anchorX - px) - damp * vx) * dt
@@ -1064,7 +1066,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     func stopPhysics() {
-        physicsTimer?.invalidate(); physicsTimer = nil
+        physicsActive = false
         vx = 0; vy = 0; thrown = false; settlingDrop = false; dragUnpinned = false
         if didMove {
             config.x = window.frame.origin.x; config.y = window.frame.origin.y
@@ -1260,23 +1262,34 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         if behaviorState != nil { behaviorState = nil; refreshDisplay() }
     }
 
-    // MARK: procedural deformation tick (60 Hz while awake)
+    // MARK: display-linked tick (refresh-rate while awake)
+
+    // One callback per displayed frame. Drives physics (only while tossing) and the
+    // always-on procedural deform, using the real time between frames so motion runs
+    // at correct speed regardless of the actual frame rate.
+    @objc func frameTick(_ link: CADisplayLink) {
+        let now = link.timestamp
+        var dt = lastFrameT > 0 ? CGFloat(now - lastFrameT) : CGFloat(link.targetTimestamp - link.timestamp)
+        lastFrameT = now
+        dt = max(0, min(dt, MAX_DT))
+        if physicsActive { physicsStep(dt) }       // may stopPhysics() / stopTick() mid-frame
+        if displayLink != nil { proceduralStep(dt) }
+    }
 
     func startTick() {
-        if tickTimer != nil { return }
-        tickTimer = Timer.scheduledTimer(withTimeInterval: 1.0 / 60.0, repeats: true) { [weak self] _ in
-            self?.proceduralStep()
-        }
+        if displayLink != nil { return }
+        lastFrameT = 0   // first frame after (re)start uses a nominal dt, not a stale gap
+        let link = view.displayLink(target: self, selector: #selector(frameTick(_:)))
+        link.add(to: .main, forMode: .common)   // .common so it keeps firing during a drag
+        displayLink = link
     }
 
     func stopTick() {
-        tickTimer?.invalidate(); tickTimer = nil
+        displayLink?.invalidate(); displayLink = nil
         view.setDeform(sx: 1, sy: 1, rot: 0)   // rest at identity so a sleeping pet isn't mid-squash
     }
 
-    func proceduralStep() {
-        let dt = physDT
-
+    func proceduralStep(_ dt: CGFloat) {
         // Impact spring (always integrating; rings down to zero on its own).
         springV += (-SPRING_K * springS - SPRING_DAMP * springV) * dt
         springS += springV * dt
